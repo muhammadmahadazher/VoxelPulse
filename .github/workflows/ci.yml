@@ -48,14 +48,3 @@ jobs:
       - name: Type-check & build
         working-directory: frontend
         run: npm run build
-
-  deploy-preview:
-    needs: [backend, frontend]
-    if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Build & deploy frontend to GitHub Pages
-        uses: JamesIves/github-pages-deploy-action@v4
-        with:
-          folder: frontend/dist

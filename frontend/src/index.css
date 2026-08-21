@@ -8,7 +8,7 @@
 
 body {
   margin: 0;
-  background: #0a0b10;
+  background: #090a0f;
   color: #e2e8f0;
   font-family: ui-sans-serif, system-ui, "Segoe UI", sans-serif;
   overflow: hidden;
@@ -16,8 +16,8 @@ body {
 
 @layer components {
   .glass {
-    @apply backdrop-blur-md border rounded-xl;
-    background: rgba(14, 16, 26, 0.62);
+    @apply backdrop-blur-xl border rounded-xl;
+    background: rgba(12, 14, 22, 0.62);
     border-color: rgba(0, 245, 255, 0.14);
     box-shadow: 0 0 24px rgba(0, 245, 255, 0.05), inset 0 0 18px rgba(112, 0, 255, 0.04);
   }
