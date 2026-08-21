@@ -72,6 +72,8 @@ export function BBox3D({ obj }: { obj: SensorObject }) {
     if (useStore.getState().rulerActive) return;
     e.stopPropagation();
     useStore.getState().selectTrack(selected ? null : obj.id);
+    import("../stores/projectStore").then((m) =>
+      m.useProjectStore.getState().select(selected ? { kind: "none" } : { kind: "track", id: obj.id }));
   };
 
   const dist = Math.hypot(x, y).toFixed(1);

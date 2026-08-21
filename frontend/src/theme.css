@@ -1,0 +1,89 @@
+/**
+ * VoxelPulse design system — "Spatial Glass"
+ * Tokens only; components consume via var(--*) or Tailwind arbitrary values.
+ * See docs/design-research.md for the rationale.
+ */
+:root {
+  /* surfaces */
+  --vp-canvas: #07080b;
+  --vp-panel: #0e1014;
+  --vp-panel-raised: #14171d;
+  --vp-overlay: rgba(14, 16, 20, 0.85);
+  --vp-overlay-blur: 16px;
+
+  /* borders / dividers */
+  --vp-border: rgba(255, 255, 255, 0.08);
+  --vp-border-strong: rgba(255, 255, 255, 0.14);
+  --vp-divider: rgba(255, 255, 255, 0.06);
+
+  /* text */
+  --vp-text-1: #e6eaf0;
+  --vp-text-2: #9aa3b2;
+  --vp-text-3: #5c6675;
+
+  /* accents (restrained) */
+  --vp-accent: #4da3ff;
+  --vp-accent-soft: rgba(77, 163, 255, 0.14);
+  --vp-highlight: #f59e0b;
+  --vp-success: #34d399;
+  --vp-warning: #f59e0b;
+  --vp-error: #f87171;
+
+  /* GIS semantic colors */
+  --vp-geo-ground: #57946f;
+  --vp-geo-veg: #3e8e5a;
+  --vp-geo-building: #c8a06a;
+  --vp-geo-water: #4da3ff;
+  --vp-geo-road: #8a8f9c;
+
+  /* spacing scale (px) */
+  --vp-sp-1: 4px;
+  --vp-sp-2: 8px;
+  --vp-sp-3: 12px;
+  --vp-sp-4: 16px;
+
+  /* radius */
+  --vp-r-sm: 4px;
+  --vp-r-md: 6px;
+  --vp-r-lg: 10px;
+
+  /* elevation (floating chrome only) */
+  --vp-shadow-1: 0 4px 16px rgba(0, 0, 0, 0.4);
+  --vp-shadow-2: 0 12px 40px rgba(0, 0, 0, 0.55);
+
+  /* motion */
+  --vp-dur-fast: 90ms;
+  --vp-dur: 140ms;
+  --vp-dur-slow: 200ms;
+  --vp-ease: cubic-bezier(0.25, 0.46, 0.45, 0.94);
+
+  /* focus */
+  --vp-focus: 0 0 0 2px rgba(77, 163, 255, 0.7);
+
+  /* type */
+  --vp-font-ui: Inter, "Segoe UI", system-ui, sans-serif;
+  --vp-font-mono: "JetBrains Mono", "Geist Mono", ui-monospace, monospace;
+  --vp-fs-xs: 10px;
+  --vp-fs-sm: 11px;
+  --vp-fs-md: 12px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root { --vp-dur-fast: 0ms; --vp-dur: 0ms; --vp-dur-slow: 0ms; }
+}
+
+/* primitive surfaces */
+.vp-panel {
+  background: var(--vp-panel);
+  border-color: var(--vp-border);
+}
+.vp-overlay {
+  background: var(--vp-overlay);
+  backdrop-filter: blur(var(--vp-overlay-blur));
+  border-color: var(--vp-border-strong);
+  box-shadow: var(--vp-shadow-2);
+}
+.vp-focusable:focus-visible {
+  outline: none;
+  box-shadow: var(--vp-focus);
+}

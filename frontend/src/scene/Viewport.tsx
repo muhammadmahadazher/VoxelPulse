@@ -6,6 +6,7 @@ import * as THREE from "three";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import { BlendFunction } from "postprocessing";
 import { useStore, EMPTY_FRAME } from "../store";
+import { useUiStore } from "../stores/uiStore";
 import { vertexShader, fragmentShader, makeColormapUniforms, COLORMAP_INDEX } from "./shaders";
 import { EyeDomeLighting } from "./edl";
 import { BBox3D } from "./BBox3D";
@@ -19,6 +20,9 @@ export interface ViewportHandle {
   reset: () => void;
   topDown: () => void;
   chase: () => void;
+  frameBounds: (b: [number, number, number, number, number, number]) => void;
+  restoreCamera: (cam: { position: [number, number, number]; target: [number, number, number] }) => void;
+  camera: () => { position: [number, number, number]; target: [number, number, number] } | null;
 }
 
 /** Live point cloud: single reused GPU buffer, zero React re-renders in the
@@ -39,8 +43,10 @@ function PointCloud() {
   const uniforms = useMemo(() => makeColormapUniforms(), []);
 
   useFrame(() => {
-    const f = useStore.getState().displayFrame();
+    const st = useStore.getState();
     const mat = matRef.current, geom = geomRef.current;
+    if (!st.showPoints) { geom.setDrawRange(0, 0); return; }
+    const f = st.displayFrame();
     if (!f || !mat || !geom) return;
     const n = Math.min(f.n, MAX_POINTS);
     if (n > 0) {
@@ -142,14 +148,15 @@ function Ruler() {
 function PostFx() {
   const enabled = useStore((s) => s.showPostFx);
   const edl = useStore((s) => s.showEdl);
+  const theme = useUiStore((s) => s.theme);
   const caOffset = useMemo(() => new THREE.Vector2(0.0006, 0.0006), []);
   if (!enabled) return null;
   return (
     <EffectComposer>
       {edl ? <EyeDomeLighting strength={1.4} radius={1.6} /> : <></>}
-      <Bloom intensity={0.45} luminanceThreshold={0.6} luminanceSmoothing={0.25} mipmapBlur />
+      <Bloom intensity={theme === "presentation" ? 0.9 : 0.35} luminanceThreshold={theme === "presentation" ? 0.5 : 0.62} luminanceSmoothing={0.25} mipmapBlur />
       <ChromaticAberration offset={caOffset} radialModulation={false} modulationOffset={0} blendFunction={BlendFunction.NORMAL} />
-      <Vignette eskil={false} offset={0.22} darkness={0.7} />
+      <Vignette eskil={false} offset={0.22} darkness={theme === "presentation" ? 0.75 : 0.55} />
     </EffectComposer>
   );
 }
@@ -251,11 +258,39 @@ export function Viewport({ handleRef }: { handleRef: React.MutableRefObject<View
     controls.update();
   };
 
+  const snapshot = () => {
+    const controls = controlsRef.current;
+    if (!controls) return null;
+    const p = controls.object.position, t = controls.target;
+    return {
+      position: [p.x, p.y, p.z] as [number, number, number],
+      target: [t.x, t.y, t.z] as [number, number, number],
+    };
+  };
+
   if (handleRef) {
     handleRef.current = {
       reset: () => setView("orbit"),
       topDown: () => setView("top"),
       chase: () => setView("chase"),
+      frameBounds: (b) => {
+        const controls = controlsRef.current;
+        if (!controls) return;
+        const cx = (b[0] + b[3]) / 2, cy = (b[1] + b[4]) / 2, cz = (b[2] + b[5]) / 2;
+        const radius = Math.max(
+          Math.hypot(b[3] - b[0], b[4] - b[1], b[5] - b[2]) / 2, 2);
+        controls.target.set(cx, cz, cy);
+        controls.object.position.set(cx + radius * 0.9, cz + radius * 0.7, cy + radius * 0.9);
+        controls.update();
+      },
+      restoreCamera: (cam) => {
+        const controls = controlsRef.current;
+        if (!controls) return;
+        controls.object.position.set(...cam.position);
+        controls.target.set(...cam.target);
+        controls.update();
+      },
+      camera: snapshot,
     };
   }
 

@@ -73,6 +73,7 @@ interface VoxelState {
   paletteOpen: boolean;
 
   // layers
+  showPoints: boolean;
   showGround: boolean;
   showBoxes: boolean;
   showRadar: boolean;
@@ -103,7 +104,7 @@ interface VoxelState {
   pipMode: PipMode;
   pipLarge: boolean;
 
-  toggle: (k: "showGround" | "showBoxes" | "showRadar" | "showPostFx" | "showEdl" | "showDensity" | "showCropGizmo" | "paused" | "rulerActive" | "inspectEnabled" | "paletteOpen" | "pipLarge") => void;
+  toggle: (k: "showPoints" | "showGround" | "showBoxes" | "showRadar" | "showPostFx" | "showEdl" | "showDensity" | "showCropGizmo" | "paused" | "rulerActive" | "inspectEnabled" | "paletteOpen" | "pipLarge") => void;
   setPoint: (v: number) => void;
   setColormap: (c: Colormap) => void;
   cycleColormap: () => void;
@@ -141,6 +142,7 @@ export const useStore = create<VoxelState>((set, get) => ({
   viewLayout: "single",
   paletteOpen: false,
 
+  showPoints: true,
   showGround: true,
   showBoxes: true,
   showRadar: true,

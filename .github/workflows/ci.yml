@@ -45,6 +45,9 @@ jobs:
       - name: Install
         working-directory: frontend
         run: npm ci
+      - name: Unit tests (Vitest)
+        working-directory: frontend
+        run: npm test
       - name: Type-check & build
         working-directory: frontend
         run: npm run build

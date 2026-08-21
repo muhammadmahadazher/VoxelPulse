@@ -1,149 +1,116 @@
-<div align="center">
-
-<img src="docs/banner.svg" alt="VoxelPulse banner" width="100%"/>
-
 # VoxelPulse
 
-**Industrial-Grade 3D LiDAR & Vision Sensor Fusion Studio — v3.0**
+Open-source spatial computing for LiDAR, GIS and perception.
 
-A perception engineering workbench in the spirit of Foxglove Studio and Rerun.io:
-Eye-Dome-Lit point clouds, multi-viewport fusion, a dockable blueprint/inspector
-workspace, synchronized timeline replay, and spatial power tools — streaming at
-30 FPS from the FastAPI backend or its built-in browser simulation engine.
+Explore massive point clouds, terrain, imagery and sensor data through a
+GPU-accelerated 2D/3D workstation — in the browser, with zero install.
+
+<img src="docs/banner.svg" alt="VoxelPulse" width="100%"/>
 
 [![CI](https://github.com/muhammadmahadazher/VoxelPulse/actions/workflows/ci.yml/badge.svg)](https://github.com/muhammadmahadazher/VoxelPulse/actions)
 [![Deploy](https://github.com/muhammadmahadazher/VoxelPulse/actions/workflows/deploy.yml/badge.svg)](https://github.com/muhammadmahadazher/VoxelPulse/actions)
-[![License: MIT](https://img.shields.io/badge/License-MIT-38BDF8.svg)](LICENSE)
-[![Live Studio](https://img.shields.io/badge/live-GitHub%20Pages-F59E0B.svg)](https://muhammadmahadazher.github.io/VoxelPulse/)
-[![React 18](https://img.shields.io/badge/react-18-61DAFB?logo=react&logoColor=white)](frontend/package.json)
-[![Three.js](https://img.shields.io/badge/three.js-r169-000?logo=three.js)](frontend/package.json)
+[![Live Studio](https://img.shields.io/badge/live-GitHub%20Pages-4DA3FF.svg)](https://muhammadmahadazher.github.io/VoxelPulse/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-34D399.svg)](LICENSE)
 
-</div>
+## Why VoxelPulse exists
 
----
+Professional LiDAR/GIS tooling is either decades-old desktop software,
+heavy enterprise platforms, or single-purpose viewers. VoxelPulse is a
+**point-cloud-first spatial workstation** with a modern, fast interface —
+combining a perception studio (robotics streams, detections, tracks) with a
+growing GIS toolset (layers, projects, real coordinates), and it runs anywhere
+a browser does.
 
-## 🌐 Live Studio
+## The v4 workstation
 
-**https://muhammadmahadazher.github.io/VoxelPulse/** — auto-deployed on every
-push. Deep-link layouts with query params: `?layout=split` (3D + BEV) or
-`?layout=fusion` (camera fusion); `?mode=sim` forces the offline engine.
+**Phase 1 of the v4 architecture is live** — a professional workspace shell
+designed after Apple HIG, Material 3, Foxglove and Rerun research
+(see [`docs/design-research.md`](docs/design-research.md)):
 
-## ✨ What's Inside
+- **Application shell** — conventional menu bar (File / View / Data / Help),
+  resizable + collapsible docked panels (drag the dividers), quiet status bar
+  (`CRS · cursor XYZ · points · FPS · mode`), keyboard-first workflow.
+- **Start screen** — New / Open / Add Data first; demo scenes load explicitly,
+  never masquerading as real data (labeled *DEMO SCENE*).
+- **Layer tree** — real layer model (visibility, opacity, lock, rename,
+  reorder, zoom-to, right-click context menu) driving the renderer.
+- **Contextual inspector** — layer / detection / point probe views + Camera 01.
+- **Projects (`.vxp`)** — versioned JSON projects with layers, layout and
+  camera; Save / Save As / Open, recent projects, autosave.
+- **Command palette** — fuzzy search across commands, layers and colormaps.
+- **Renderer (preserved from v3)** — Eye-Dome Lighting, soft-disc gaussian
+  splats, 8 colormaps, EDL/Bloom/Vignette/CA stack, aerospace ego frame,
+  holographic detection boxes, ROI crop gizmo, laser ruler, 3 viewport
+  layouts (3D / split BEV / camera fusion), timeline replay.
 
-### Rendering Engine
-- **Eye-Dome Lighting (EDL)** — screen-space, depth-aware post pass (Bauszat et
-  al. technique, as used by Potree/ParaView): 4-neighbour log-depth comparison
-  darkens discontinuities, giving dense clouds tactile relief and readable
-  silhouettes. Togglable, runs with Bloom + Vignette + Chromatic Aberration.
-- **Gaussian splat points** — anti-aliased soft discs with 1/d perspective
-  attenuation; intensity gate + ROI rejection computed in-shader.
-- **8 colormaps** — Cyber-Neon, Turbo, Viridis, Magma (reflectivity),
-  Infrared (ToF echo), Height/Z, Semantic classification (ground/objects/
-  structures), and Radial proximity zones (0–10 / 10–30 / 30–80 m).
-- **Aerospace ego frame** — labeled XYZ triad (X red / Y green / Z blue with
-  arrowheads), range rings (10/25/50/100 m), spinning 360° sweep, ego sensor mesh.
-- **Perception meshes** — oriented boxes with corner brackets, tinted
-  translucent faces, pulsing reticles, 3D velocity arrows, and ground-footprint
-  shadows.
-
-### Studio Workspace (Foxglove-style)
-- **Left dock — Blueprint tree**: hierarchical scene entities (Ego Sensor,
-  Ground, Range Rings, Point Stream, Detected Objects, Camera 01, Calibration
-  axes), shading toggles (EDL, FX, ruler, inspector, crop gizmo, density map),
-  colormaps and scenario engine — all in collapsible sections.
-- **Right dock — Inspector**: click any track for UUID, class probability,
-  L×W×H, position, distance, yaw, velocity vector and speed; live point probe
-  (XYZ / range / intensity 0–255); docked Camera 01 feed (Front/Rear/BEV).
-- **Bottom — Telemetry & playback studio**: synchronized timeline scrubber over
-  a 150-frame telemetry buffer with step, loop, 0.25×–4× speed replay, and
-  LIVE/REPLAY modes; time-series sparklines (FPS, latency, points, tracks);
-  toggleable BEV density heatmap.
-- **Multi-viewport layouts** (`V`): 3D orbit · Split 3D + orthographic BEV ·
-  2D/3D Camera Fusion view (RGB feed with live projected point overlay).
-
-### Power Tools & Data Hub
-- 📏 Dual-point laser measure — distance, ΔX/ΔY/ΔZ, slope angle (`M`)
-- ✂️ Interactive 6-handle 3D ROI crop gizmo (`X`) — GPU-side filtering
-- 📂 Drag & drop import — `.las` (binary), `.ply`, `.pcd`, `.xyz`
-- 💾 ROI-filtered export to `.PLY` / `.PCD`; 4K clean canvas snapshots (`S`, `E`)
-- ⌘ Command palette (`Ctrl+K`) — every action, one keystroke away
-
-### Fusion Backend (optional)
-FastAPI WebSocket streaming packed `VPF1` binary frames at 30 FPS, a synthetic
-scene engine (urban traffic with buildings/vegetation, warehouse AGVs, drone
-overflight), RANSAC ground segmentation + Euclidean clustering in NumPy, and a
-standalone WebWorker sim engine that takes over automatically on static hosting.
-
-## 🚀 Quick Start
+## Quick start (60 seconds)
 
 ```bash
 git clone https://github.com/muhammadmahadazher/VoxelPulse.git
 cd VoxelPulse
-./start.sh        # macOS / Linux   (Windows: start.bat)
+./start.sh          # macOS / Linux (Windows: start.bat)
 ```
 
-Open **http://localhost:5173**. No backend needed — the studio boots into SIM
-ENGINE mode automatically and upgrades to LIVE SENSOR when the backend answers.
+Open **http://localhost:5173**. The studio works without the Python backend
+(built-in WebWorker demo engine); start it for live sensor simulation.
 
 <details>
-<summary><b>Manual setup</b></summary>
+<summary><b>Manual / developer setup</b></summary>
 
 ```bash
-cd backend && pip install -r requirements.txt && uvicorn app.main:app --reload --port 8000
+# frontend (dev, test, build)
 cd frontend && npm install && npm run dev
+npm test          # vitest unit suites
+npm run build     # strict tsc + production build
+
+# optional processing backend
+cd backend && pip install -r requirements.txt
+uvicorn app.main:app --reload --port 8000
 ```
 </details>
 
-## ⌨️ Shortcuts
+## Supported formats (honest status)
 
-| Key | Action | Key | Action |
+| Capability | Browser | Local backend | Status |
 |---|---|---|---|
-| `Ctrl/⌘ K` | Command palette | `Space` | Play / pause |
-| `V` | Cycle viewport layout | `X` | ROI crop gizmo |
-| `M` | Laser ruler | `C` | Cycle colormap |
-| `R` / `T` / `F` | Orbit / top-down / chase | `S` / `E` | 4K PNG / PLY export |
-| `Esc` | Clear selection + ruler | | |
+| LAS (binary) | ✓ import | ✓ import | Stable |
+| PLY (ascii/binary xyz) | ✓ | ✓ | Stable |
+| PCD (ascii/binary) | ✓ | ✓ | Stable |
+| XYZ / CSV points | ✓ | — | Stable |
+| LAZ | — | planned | Roadmap (Phase 2 adapters) |
+| COPC / 3D Tiles / GeoTIFF | — | — | Roadmap (Phases 5–6) |
+| Export: PLY / PCD / 4K PNG / .vxp | ✓ | — | Stable |
 
-## 🏗 Architecture
+## Architecture
 
-```
-Backend (FastAPI, optional)          Studio Frontend (React + Three.js)
-┌──────────────────────────┐         ┌─────────────────────────────────────┐
-│ sim scenes + VPF1 frames │ ── ws ──▶ ws.ts ─ ring buffer ─▶ timeline     │
-│ RANSAC / clustering      │   30fps │  └ failover < 3s ▶ simWorker (WW)   │
-└──────────────────────────┘         │ store ─▶ GLSL points + EDL + FX     │
-                                     │  ├─ blueprint dock / inspector dock │
-                                     │  ├─ 3D · BEV ortho · fusion canvas  │
-                                     │  └─ crop gizmo · ruler · exporters  │
-                                     └─────────────────────────────────────┘
-```
+Phase 0 audit, design research, architecture and ADRs live in
+[`docs/`](docs/): [audit](docs/audit-v4.md) · [design research](docs/design-research.md) ·
+[architecture](docs/architecture-v4.md) · ADRs ([renderer](docs/adr/0001-renderer-abstraction.md),
+[layer model](docs/adr/0002-layer-dataset-model.md), [state](docs/adr/0003-scoped-state-stores.md),
+[.vxp format](docs/adr/0004-project-format-vxp.md)).
 
-## 📁 Layout
-
-```
-backend/                      # FastAPI telemetry server + processing pipeline
-frontend/src/scene/           # Viewport, EDL effect, shaders, boxes, ego frame, gizmo
-frontend/src/ui/              # HudBar, StudioLeft/Right/Bottom, palette, inspector
-frontend/src/sim/simWorker.ts # standalone WebWorker simulation engine
-frontend/src/utils/           # .las/.ply/.pcd/.xyz parsers · PLY/PCD/4K exporters
-.github/workflows/            # ci.yml (test+build) · deploy.yml (GitHub Pages)
+```text
+File / Stream / Demo ─▶ FormatAdapter ─▶ Layer (project store)
+                                             │
+        menu · palette · panels (React) ─▶ scoped stores ─▶ Render engine
+                                             │                (Three.js/R3F adapter)
+        telemetry store ◀─ VPF1 ws / WebWorker sim ──▶ GPU buffers (EDL, splats)
 ```
 
-## 🛠 Stack
+## Roadmap
 
-React 18 · TypeScript (strict) · Vite · Three.js · @react-three/fiber & drei ·
-postprocessing (custom EDL Effect) · Zustand · Framer Motion · Tailwind ·
-Lucide — Python 3.12 · FastAPI · NumPy on the backend.
+- **v4 Spatial Workstation** — ✅ shell, layers, projects, palette · ⏳ dataset/adapter architecture, worker pool, cross-sections
+- **v5 GIS Foundation** — CRS (proj), vector layers, attribute table, map workspace
+- **v6 Massive Data** — chunked LOD streaming, LAZ/COPC, tens-of-millions+ points
+- **v7 Analysis Platform** — ground classification, DEM, clustering, jobs backend
+- **v8 Extensible Spatial OS** — plugin SDK, desktop shell (Tauri), scripting
 
-## 🔁 CI/CD
+## Contributing
 
-Backend smoke tests + strict frontend build on every PR (`ci.yml`); production
-build with Pages base path and official artifact deploy on main (`deploy.yml`).
+PRs welcome — CI gates on unit tests, strict TypeScript and the production
+build. See [`docs/audit-v4.md`](docs/audit-v4.md) for the current technical
+debt register.
 
-## 🤝 Contributing
-
-PRs welcome — CI gates on a strict TypeScript build and backend smoke tests.
-
-## 📄 License
+## License
 
 MIT © [Muhammad Mahad Azher](https://github.com/muhammadmahadazher)
