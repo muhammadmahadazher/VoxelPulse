@@ -23,13 +23,17 @@ function Spark({ series, color, label, unit, max }: {
     if (series.length < 2) return;
     const hi = max ?? Math.max(...series, 1e-6);
     const lo = 0;
-    const pt = (i: number) => [
+    const pt = (i: number): [number, number] => [
       (i / (series.length - 1)) * W,
       H - 4 - ((series[i] - lo) / (hi - lo)) * (H - 10),
     ];
     ctx.beginPath();
-    ctx.moveTo(...pt(0));
-    for (let i = 1; i < series.length; i++) ctx.lineTo(...pt(i));
+    const first = pt(0);
+    ctx.moveTo(first[0], first[1]);
+    for (let i = 1; i < series.length; i++) {
+      const p = pt(i);
+      ctx.lineTo(p[0], p[1]);
+    }
     ctx.strokeStyle = color;
     ctx.lineWidth = 2;
     ctx.stroke();
