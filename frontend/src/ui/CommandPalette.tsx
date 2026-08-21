@@ -83,7 +83,7 @@ export function CommandPalette() {
           onClick={(e) => e.stopPropagation()}
         >
           <div className="flex items-center gap-2 border-b border-white/5 px-4 py-3">
-            <Command size={14} className="text-cyan" />
+            <Command size={14} className="text-sky-400" />
             <input
               ref={inputRef}
               value={query}
@@ -94,7 +94,7 @@ export function CommandPalette() {
                 if (e.key === "Enter" && filtered[sel]) { filtered[sel].run(); toggle("paletteOpen"); }
                 if (e.key === "Escape") toggle("paletteOpen");
               }}
-              placeholder="Type a command… (colormaps, scenarios, cameras, export)"
+              placeholder="Type a command… (colormaps, scenarios, layouts, export)"
               className="mono w-full bg-transparent text-sm text-slate-100 placeholder-slate-500 outline-none"
             />
             <kbd className="mono rounded border border-white/10 px-1.5 py-0.5 text-[10px] text-slate-500">ESC</kbd>
@@ -109,7 +109,7 @@ export function CommandPalette() {
                 onMouseEnter={() => setSel(i)}
                 onClick={() => { c.run(); toggle("paletteOpen"); }}
                 className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-xs transition ${
-                  i === sel ? "bg-cyan/15 text-cyan" : "text-slate-300 hover:bg-white/5"}`}
+                  i === sel ? "bg-sky-400/15 text-sky-300" : "text-slate-300 hover:bg-white/5"}`}
               >
                 <span>{c.label}</span>
                 <span className="flex items-center gap-2">

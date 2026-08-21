@@ -44,7 +44,7 @@ export function HudBar() {
     >
       <div className="pointer-events-auto flex flex-wrap items-center gap-2">
         <div className="glass flex items-center gap-2 px-4 py-2">
-          <Boxes size={18} className="text-cyan" />
+          <Boxes size={18} className="text-sky-400" />
           <span className="text-sm font-black tracking-wider text-slate-100">
             VOXEL<span className="text-sky-400">PULSE</span>
           </span>
@@ -64,7 +64,7 @@ export function HudBar() {
           </div>
         ))}
         <button onClick={() => useStore.getState().toggle("paletteOpen")}
-          className="glass flex items-center gap-1.5 px-3 py-1.5 text-slate-300 transition hover:text-cyan">
+          className="glass flex items-center gap-1.5 px-3 py-1.5 text-slate-300 transition hover:text-sky-300">
           <Command size={12} />
           <kbd className="mono text-[10px]">Ctrl K</kbd>
         </button>

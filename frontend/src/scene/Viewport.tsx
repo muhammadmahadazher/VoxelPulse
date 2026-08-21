@@ -23,7 +23,7 @@ export interface ViewportHandle {
 
 /** Live point cloud: single reused GPU buffer, zero React re-renders in the
  *  telemetry loop (buffer swaps + uniform updates happen inside useFrame). */
-function PointCloud({ withEdl = true }: { withEdl?: boolean }) {
+function PointCloud() {
   const geomRef = useRef<THREE.BufferGeometry>(null!);
   const matRef = useRef<THREE.ShaderMaterial>(null!);
   const raycaster = useThree((s) => s.raycaster);
@@ -37,9 +37,8 @@ function PointCloud({ withEdl = true }: { withEdl?: boolean }) {
     []
   );
   const uniforms = useMemo(() => makeColormapUniforms(), []);
-  void withEdl;
 
-  useFrame(({ clock }) => {
+  useFrame(() => {
     const f = useStore.getState().displayFrame();
     const mat = matRef.current, geom = geomRef.current;
     if (!f || !mat || !geom) return;
@@ -58,7 +57,6 @@ function PointCloud({ withEdl = true }: { withEdl?: boolean }) {
     mat.uniforms.intensityMin.value = s.intensityMin;
     (mat.uniforms.roiMin.value as THREE.Vector3).set(s.roi.xMin, s.roi.yMin, s.roi.zMin);
     (mat.uniforms.roiMax.value as THREE.Vector3).set(s.roi.xMax, s.roi.yMax, s.roi.zMax);
-    void clock;
   });
 
   const handlePointerMove = (e: ThreeEvent<PointerEvent>) => {

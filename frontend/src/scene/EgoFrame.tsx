@@ -46,7 +46,7 @@ function Axis({ dir, color, label, length = 14 }: {
       <lineSegments geometry={geo}>
         <lineBasicMaterial color={color} transparent opacity={0.9} depthWrite={false} />
       </lineSegments>
-      <mesh position={[tip[0], tip[1] + (dir[1] ? 0 : 0.0), tip[2]]} quaternion={quat} renderOrder={2}>
+      <mesh position={tip} quaternion={quat} renderOrder={2}>
         <coneGeometry args={[0.22, 0.7, 10]} />
         <meshBasicMaterial color={color} />
       </mesh>

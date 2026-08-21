@@ -39,10 +39,6 @@ export function BBox3D({ obj }: { obj: SensorObject }) {
   const selected = useStore((s) => s.selectedTrack === obj.id);
   const matRef = useRef<THREE.LineBasicMaterial>(null!);
   const reticleRef = useRef<THREE.Mesh>(null!);
-  const velRef = useRef<THREE.Group>(null!);
-
-  const brackets = useMemo(() => bracketGeometry(dx, dy, dz), [dx, dy, dz]);
-  const outline = useMemo(() => new THREE.EdgesGeometry(new THREE.BoxGeometry(dx, dz, dy)), [dx, dy, dz]);
   const velGroup = useRef<THREE.Group>(null!);
   const velGeo = useMemo(() => {
     const g = new THREE.BufferGeometry();
@@ -50,6 +46,10 @@ export function BBox3D({ obj }: { obj: SensorObject }) {
     g.setIndex([0, 1]);
     return g;
   }, []);
+
+  const brackets = useMemo(() => bracketGeometry(dx, dy, dz), [dx, dy, dz]);
+  const outline = useMemo(() => new THREE.EdgesGeometry(new THREE.BoxGeometry(dx, dz, dy)), [dx, dy, dz]);
+  const colorTint = useMemo(() => new THREE.Color(color), [color]);
 
   useFrame(({ clock }) => {
     const t = clock.elapsedTime;
@@ -75,7 +75,6 @@ export function BBox3D({ obj }: { obj: SensorObject }) {
   };
 
   const dist = Math.hypot(x, y).toFixed(1);
-  const colorTint = new THREE.Color(color);
 
   return (
     <group position={[x, z, y]} onClick={onSelect}>
@@ -111,7 +110,6 @@ export function BBox3D({ obj }: { obj: SensorObject }) {
           <lineBasicMaterial color={color} transparent opacity={0.9}
             blending={THREE.AdditiveBlending} depthWrite={false} />
         </lineSegments>
-        <group ref={velRef} position={[0, 0, 0]} />
         <mesh position={[1, 0, 0]} rotation={[0, 0, -Math.PI / 2]}>
           <coneGeometry args={[0.14, 0.5, 10]} />
           <meshBasicMaterial color={color} blending={THREE.AdditiveBlending} depthWrite={false} />

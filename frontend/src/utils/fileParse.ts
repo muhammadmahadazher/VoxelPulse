@@ -37,7 +37,6 @@ function fromLas(buf: ArrayBuffer): FrameData {
     positions[i * 3 + 2] = dv.getInt32(base + 8, true) * scale;
     intensity[i] = 0.5;
   }
-  const out = { ...EMPTY_FRAME, n, ts: Date.now(), positions, intensity };
   // recenter around origin for comfortable viewing
   const m = n >> 1;
   if (n > 1) {
@@ -46,7 +45,7 @@ function fromLas(buf: ArrayBuffer): FrameData {
       positions[i * 3] -= cx; positions[i * 3 + 1] -= cy; positions[i * 3 + 2] -= cz;
     }
   }
-  return out;
+  return { ...EMPTY_FRAME, n, ts: Date.now(), positions, intensity };
 }
 
 function fromPly(buf: ArrayBuffer): FrameData {

@@ -5,7 +5,7 @@ import {
 } from "lucide-react";
 import { useStore } from "../store";
 import { exportScreenshot, exportPly, exportPcd } from "../utils/exporters";
-import { setSimScenario, setStreamPaused } from "../ws";
+import { setStreamPaused } from "../ws";
 
 const SPEEDS = [0.25, 0.5, 1, 2, 4];
 
@@ -37,7 +37,6 @@ function Spark({ series, color, label, unit, max }: {
     ctx.strokeStyle = color;
     ctx.lineWidth = 2;
     ctx.stroke();
-    // fill
     ctx.lineTo(W, H); ctx.lineTo(0, H); ctx.closePath();
     const grad = ctx.createLinearGradient(0, 0, 0, H);
     grad.addColorStop(0, color + "44"); grad.addColorStop(1, color + "00");
@@ -96,7 +95,13 @@ function DensityHeatmap() {
 
 /** Bottom studio: synchronized timeline scrubber + telemetry time-series. */
 export function StudioBottom() {
-  const { paused, scrub, history, playSpeed, stats, mode, scenario } = useStore();
+  const paused = useStore((s) => s.paused);
+  const scrub = useStore((s) => s.scrub);
+  const history = useStore((s) => s.history);
+  const playSpeed = useStore((s) => s.playSpeed);
+  const stats = useStore((s) => s.stats);
+  const mode = useStore((s) => s.mode);
+  const scenario = useStore((s) => s.scenario);
   const toggle = useStore((s) => s.toggle);
   const setScrub = useStore((s) => s.setScrub);
   const setPlaySpeed = useStore((s) => s.setPlaySpeed);
@@ -108,11 +113,11 @@ export function StudioBottom() {
       const s = useStore.getState();
       const next = s.scrub.index + 1;
       if (next >= s.history.length) {
-        if (s.playSpeed > 0) s.setScrub(true, 0); // loop
+        s.setScrub(true, 0); // loop
       } else s.setScrub(true, next);
     }, 1000 / 30 / playSpeed);
     return () => clearInterval(iv);
-  }, [scrub.active, paused, playSpeed, scrub.index]);
+  }, [scrub.active, paused, playSpeed, scrub.index, setScrub]);
 
   const statsArr = stats.slice(-60);
   const iconBtn = "rounded-md border p-1.5 transition";
@@ -128,9 +133,12 @@ export function StudioBottom() {
         <div className="flex gap-1.5">
           <button
             onClick={() => {
-              const s = useStore.getState();
               if (scrub.active) { setScrub(false, 0); toggle("paused"); setStreamPaused(false); }
-              else { toggle("paused"); setStreamPaused(!s.paused ? true : false); }
+              else {
+                const wasPaused = useStore.getState().paused;
+                toggle("paused");
+                setStreamPaused(!wasPaused);
+              }
             }}
             className={`${iconBtn} border-sky-400/30 bg-sky-400/10 text-sky-300 hover:bg-sky-400/20`}
             title="Play / Pause (Space)">
