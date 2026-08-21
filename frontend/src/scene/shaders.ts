@@ -17,6 +17,15 @@ vec3 viridis(float t) {
     0.4566 + t*(2.0761 + t*(-9.9819 + t*(16.2606 + t*-8.2569)))
   ), 0.0, 1.0);
 }
+// Magma (calibrated reflectivity gradient)
+vec3 magma(float t) {
+  t = clamp(t, 0.0, 1.0);
+  vec3 a = vec3(0.001, 0.000, 0.014);
+  vec3 b = vec3(0.42, 0.10, 0.48);
+  vec3 c = vec3(0.95, 0.40, 0.35);
+  vec3 d = vec3(0.99, 0.99, 0.75);
+  return t < 0.4 ? mix(a, b, t / 0.4) : (t < 0.75 ? mix(b, c, (t - 0.4) / 0.35) : mix(c, d, (t - 0.75) / 0.25));
+}
 // Cyber-Neon: electric blue -> magenta -> hot orange
 vec3 neon(float t) {
   t = clamp(t, 0.0, 1.0);
@@ -43,6 +52,19 @@ vec3 heightMap(float t) {
   vec3 d = vec3(1.00, 0.85, 0.15);
   return t < 0.34 ? mix(a, b, t / 0.34) : (t < 0.67 ? mix(b, c, (t - 0.34) / 0.33) : mix(c, d, (t - 0.67) / 0.33));
 }
+// Semantic classification (approximated from geometry):
+//   ground (z<0.2) = slate green, objects (0.2..2.6) = class ramp, structures = sand
+vec3 classification(float h, float intensity_) {
+  if (h < 0.2) return vec3(0.35, 0.52, 0.42);
+  if (h < 2.6) return mix(vec3(0.98, 0.72, 0.09), vec3(0.94, 0.98, 0.10), clamp(intensity_, 0.0, 1.0));
+  return vec3(0.78, 0.55, 0.35);
+}
+// Radial proximity zones: 0-10m hot amber, 10-30m cyan, 30-80m violet-blue
+vec3 zones(float r) {
+  if (r < 10.0) return vec3(1.00, 0.62, 0.04);
+  if (r < 30.0) return vec3(0.05, 0.74, 0.98);
+  return vec3(0.42, 0.28, 0.85);
+}
 `;
 
 export const vertexShader = /* glsl */ `
@@ -52,7 +74,6 @@ varying float vRange;
 varying float vHeight;
 varying vec3 vWorldPos;
 uniform float pointSize;
-uniform float uTime;
 void main() {
   vIntensity = intensity;
   vRange = length(position.xy);
@@ -71,12 +92,11 @@ varying float vIntensity;
 varying float vRange;
 varying float vHeight;
 varying vec3 vWorldPos;
-uniform int colormapMode;   // 0 neon, 1 turbo, 2 viridis, 3 infrared, 4 height, 5 velocity
+uniform int colormapMode;   // 0 neon, 1 turbo, 2 viridis, 3 magma, 4 infrared, 5 height, 6 class, 7 zones
 uniform float maxRange;
 uniform float intensityMin;
 uniform vec3 roiMin;
 uniform vec3 roiMax;
-uniform float uTime;
 ${COLORMAP_GLSL}
 void main() {
   if (vIntensity < intensityMin) discard;
@@ -90,24 +110,24 @@ void main() {
   if (colormapMode == 0) c = neon(tRange);
   else if (colormapMode == 1) c = turbo(tRange);
   else if (colormapMode == 2) c = viridis(tRange);
-  else if (colormapMode == 3) c = infrared(vIntensity);
-  else if (colormapMode == 4) c = heightMap(tHeight);
-  else {
-    // velocity flow: range base with travelling shimmer bands
-    c = turbo(tRange) * (0.75 + 0.35 * sin(uTime * 6.0 - vRange * 0.8));
-  }
+  else if (colormapMode == 3) c = magma(vIntensity);
+  else if (colormapMode == 4) c = infrared(vIntensity);
+  else if (colormapMode == 5) c = heightMap(tHeight);
+  else if (colormapMode == 6) c = classification(vHeight, vIntensity);
+  else c = zones(vRange);
+  c *= 1.0 + 0.15 * (1.0 - tRange);
 
   // anti-aliased soft gaussian disc sprite
   vec2 uv = gl_PointCoord * 2.0 - 1.0;
   float r2 = dot(uv, uv);
   if (r2 > 1.0) discard;
   float alpha = exp(-3.5 * r2);
-  gl_FragColor = vec4(c * (1.0 + 0.25 * (1.0 - tRange)), 0.9 * alpha);
+  gl_FragColor = vec4(c, 0.9 * alpha);
 }
 `;
 
 export const COLORMAP_INDEX: Record<string, number> = {
-  neon: 0, turbo: 1, viridis: 2, infrared: 3, height: 4, velocity: 5,
+  neon: 0, turbo: 1, viridis: 2, magma: 3, infrared: 4, height: 5, class: 6, zones: 7,
 };
 
 export function makeColormapUniforms() {
@@ -118,6 +138,5 @@ export function makeColormapUniforms() {
     intensityMin: { value: 0.0 },
     roiMin: { value: new THREE.Vector3(-80, -40, -3) },
     roiMax: { value: new THREE.Vector3(80, 40, 40) },
-    uTime: { value: 0 },
   } as Record<string, THREE.IUniform>;
 }

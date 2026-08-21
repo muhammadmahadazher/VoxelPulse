@@ -6,13 +6,13 @@ import { useStore } from "../store";
 function Chip({ icon, label, value, accent = "cyan" }: {
   icon: React.ReactNode; label: string; value: string; accent?: "cyan" | "violet" | "green" | "amber";
 }) {
-  const color = accent === "cyan" ? "#00F5FF" : accent === "violet" ? "#A78BFA" : accent === "green" ? "#39FF6A" : "#FFB000";
+  const color = accent === "cyan" ? "#38BDF8" : accent === "violet" ? "#A78BFA" : accent === "green" ? "#34D399" : "#F59E0B";
   return (
     <div className="glass flex items-center gap-2 px-3 py-1.5">
       <span style={{ color }}>{icon}</span>
       <div className="leading-tight">
         <div className="text-[9px] uppercase tracking-widest text-slate-400">{label}</div>
-        <div className="mono text-sm font-bold glow-cyan" style={{ color }}>{value}</div>
+        <div className="mono text-sm font-bold" style={{ color }}>{value}</div>
       </div>
     </div>
   );
@@ -46,9 +46,9 @@ export function HudBar() {
         <div className="glass flex items-center gap-2 px-4 py-2">
           <Boxes size={18} className="text-cyan" />
           <span className="text-sm font-black tracking-wider text-slate-100">
-            VOXEL<span className="text-cyan glow-cyan">PULSE</span>
+            VOXEL<span className="text-sky-400">PULSE</span>
           </span>
-          <span className="mono rounded bg-white/5 px-1.5 py-0.5 text-[9px] text-slate-400">v2.0</span>
+          <span className="mono rounded bg-white/5 px-1.5 py-0.5 text-[9px] text-slate-400">v3.0 STUDIO</span>
         </div>
         <Chip icon={<Activity size={14} />} label="FPS" value={fps.toFixed(0)} accent="green" />
         <Chip icon={<Radio size={14} />} label="Points" value={n.toLocaleString()} />

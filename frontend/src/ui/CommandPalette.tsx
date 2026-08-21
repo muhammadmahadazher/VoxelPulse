@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Command, CornerDownLeft } from "lucide-react";
-import { useStore, COLORMAPS, type Colormap, type ScenarioName } from "../store";
+import { useStore, COLORMAPS, type Colormap, type ScenarioName, type ViewLayout } from "../store";
 import { setSimScenario } from "../ws";
-import { exportScreenshot, exportPly } from "../utils/exporters";
+import { exportScreenshot, exportPly, exportPcd } from "../utils/exporters";
 
 interface Cmd {
   id: string;
@@ -29,23 +29,33 @@ export function CommandPalette() {
     const scenario = (n: ScenarioName, label: string): Cmd => ({
       id: `sc-${n}`, label: `Scenario: ${label}`, group: "Scenarios", run: () => setSimScenario(n),
     });
+    const layout = (v: ViewLayout, label: string): Cmd => ({
+      id: `lay-${v}`, label: `Layout: ${label}`, group: "Workspace", run: () => useStore.getState().setViewLayout(v),
+    });
     return [
       ...COLORMAPS.map(cmap),
       scenario("urban", "Urban Driving"),
       scenario("warehouse", "Warehouse AGV"),
       scenario("drone", "Drone Flight"),
+      layout("single", "3D Orbit"),
+      layout("split", "Split 3D + BEV"),
+      layout("fusion", "2D/3D Fusion View"),
       { id: "lay-ground", label: "Toggle: Ground Plane", group: "Layers", run: () => useStore.getState().toggle("showGround") },
-      { id: "lay-boxes", label: "Toggle: Holographic Boxes", group: "Layers", run: () => useStore.getState().toggle("showBoxes") },
-      { id: "lay-radar", label: "Toggle: Radar Rings & Sweep", group: "Layers", run: () => useStore.getState().toggle("showRadar") },
+      { id: "lay-boxes", label: "Toggle: Perception Boxes", group: "Layers", run: () => useStore.getState().toggle("showBoxes") },
+      { id: "lay-radar", label: "Toggle: Ego Frame / Radar", group: "Layers", run: () => useStore.getState().toggle("showRadar") },
+      { id: "lay-edl", label: "Toggle: Eye-Dome Lighting", group: "Layers", run: () => useStore.getState().toggle("showEdl") },
       { id: "lay-fx", label: "Toggle: Post-Processing FX", group: "Layers", run: () => useStore.getState().toggle("showPostFx") },
-      { id: "tool-ruler", label: "Measure: 3D Ruler (M)", group: "Tools", run: () => useStore.getState().toggle("rulerActive") },
+      { id: "lay-density", label: "Toggle: Density Heatmap", group: "Layers", run: () => useStore.getState().toggle("showDensity") },
+      { id: "tool-ruler", label: "Measure: 3D Laser Ruler (M)", group: "Tools", run: () => useStore.getState().toggle("rulerActive") },
+      { id: "tool-crop", label: "ROI Crop Gizmo (X)", group: "Tools", run: () => useStore.getState().toggle("showCropGizmo") },
       { id: "tool-inspect", label: "Toggle: Point Inspector", group: "Tools", run: () => useStore.getState().toggle("inspectEnabled") },
       { id: "tool-roi", label: "Reset ROI Crop Bounds", group: "Tools", run: () => useStore.getState().resetRoi() },
       { id: "cam-orbit", label: "Camera: Orbit Reset (R)", group: "Camera", run: () => window.dispatchEvent(new CustomEvent("vp-camera", { detail: "orbit" })) },
       { id: "cam-top", label: "Camera: Top-Down (T)", group: "Camera", run: () => window.dispatchEvent(new CustomEvent("vp-camera", { detail: "top" })) },
       { id: "cam-chase", label: "Camera: Chase FPV (F)", group: "Camera", run: () => window.dispatchEvent(new CustomEvent("vp-camera", { detail: "chase" })) },
-      { id: "shot", label: "Snapshot: Screenshot PNG (S)", group: "Export", run: exportScreenshot },
-      { id: "ply", label: "Export: Current Frame → .PLY (E)", group: "Export", run: exportPly },
+      { id: "shot", label: "Snapshot: 4K PNG (S)", group: "Export", run: exportScreenshot },
+      { id: "ply", label: "Export: ROI → .PLY (E)", group: "Export", run: exportPly },
+      { id: "pcd", label: "Export: ROI → .PCD", group: "Export", run: exportPcd },
       { id: "pause", label: `Stream: ${s.paused ? "Resume" : "Pause"} (Space)`, group: "Stream", run: () => useStore.getState().toggle("paused") },
     ];
   }, []);

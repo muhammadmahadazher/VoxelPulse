@@ -8,9 +8,45 @@ export function parsePointFile(name: string, buf: ArrayBuffer): FrameData {
   const lower = name.toLowerCase();
   if (lower.endsWith(".ply")) return fromPly(buf);
   if (lower.endsWith(".pcd")) return fromPcd(buf);
+  if (lower.endsWith(".las")) return fromLas(buf);
+  if (lower.endsWith(".laz"))
+    throw new Error(".laz is compressed LAS — convert to .las or upload via the backend");
   if (lower.endsWith(".xyz") || lower.endsWith(".txt") || lower.endsWith(".pts"))
     return fromXyz(new TextDecoder().decode(buf));
   throw new Error(`unsupported file type: ${name}`);
+}
+
+/** Binary LAS 1.x: point count @107, point data offset @96, xyz as scaled i32. */
+function fromLas(buf: ArrayBuffer): FrameData {
+  const dv = new DataView(buf);
+  if (dv.byteLength < 120) throw new Error("bad LAS: too short");
+  const n = Math.min(dv.getUint32(107, true), MAX_LOAD_POINTS);
+  const offset = dv.getUint32(96, true);
+  const scale = 0.001;
+  const positions = new Float32Array(n * 3);
+  const intensity = new Float32Array(n);
+  const bytes = new Uint8Array(buf);
+  const fmt = dv.getUint8(106) & 0x7f;
+  const recLen = fmt === 1 || fmt === 4 || fmt === 5 ? (fmt === 5 ? 28 : fmt === 4 ? 29 : 20)
+    : fmt === 2 || fmt === 3 ? (fmt === 3 ? 26 : 20) : 20;
+  for (let i = 0; i < n; i++) {
+    const base = offset + i * recLen;
+    if (base + 12 > bytes.length) break;
+    positions[i * 3] = dv.getInt32(base, true) * scale;
+    positions[i * 3 + 1] = dv.getInt32(base + 4, true) * scale;
+    positions[i * 3 + 2] = dv.getInt32(base + 8, true) * scale;
+    intensity[i] = 0.5;
+  }
+  const out = { ...EMPTY_FRAME, n, ts: Date.now(), positions, intensity };
+  // recenter around origin for comfortable viewing
+  const m = n >> 1;
+  if (n > 1) {
+    const cx = positions[m * 3], cy = positions[m * 3 + 1], cz = positions[m * 3 + 2];
+    for (let i = 0; i < n; i++) {
+      positions[i * 3] -= cx; positions[i * 3 + 1] -= cy; positions[i * 3 + 2] -= cz;
+    }
+  }
+  return out;
 }
 
 function fromPly(buf: ArrayBuffer): FrameData {

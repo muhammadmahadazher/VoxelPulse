@@ -32,6 +32,8 @@ let t = 0;
 let frameIdx = 0;
 let paused = false;
 let agents: Agent[] = [];
+let buildings: { x: number; y: number; w: number; h: number }[] = [];
+let trees: { x: number; y: number; r: number; h: number }[] = [];
 let timer: ReturnType<typeof setInterval> | null = null;
 
 function mulberry(seed: number) {
@@ -50,10 +52,23 @@ function spawn(sc: ScenarioName): Agent[] {
   rand = mulberry(Date.now() & 0xffff);
   const out: Agent[] = [];
   let id = 0;
+  buildings = [];
+  trees = [];
   const add = (a: Omit<Agent, "id" | "conf" | "phase">) =>
     out.push({ ...a, id: id++, conf: rr(0.82, 0.97), phase: rr(0, Math.PI * 2) });
 
   if (sc === "urban") {
+    // roadside building blocks (front faces sampled as static returns)
+    for (let i = 0; i < 7; i++) {
+      buildings.push({
+        x: 8 + i * 10, y: rand() < 0.5 ? -28 : 28,
+        w: rr(7, 10), h: rr(6, 16),
+      });
+    }
+    // roadside trees between road and buildings
+    for (let i = 0; i < 10; i++) {
+      trees.push({ x: rr(5, 70), y: (rand() < 0.5 ? -1 : 1) * rr(10.5, 16), r: rr(1.2, 2.2), h: rr(4, 7) });
+    }
     for (const lane of [-7, -3.5, 0, 3.5, 7]) {
       const count = 1 + Math.floor(rand() * 2);
       for (let i = 0; i < count; i++) {
@@ -152,6 +167,35 @@ function step(dt: number): SimFrameMsg {
       pts[i * 3 + 1] = ag.y + lx * s + ly * c;
       pts[i * 3 + 2] = ag.z + lz;
       inten[i] = clamp(0.55 + 0.3 * rand() + (pts[i * 3 + 2] / 3) * 0.15, 0, 1);
+    }
+  }
+  const nStatic = n - i;
+  const nBuilding = Math.floor(nStatic * (scenario === "urban" ? 0.45 : 0.1));
+  const nTree = Math.floor(nStatic * (trees.length ? 0.25 : 0));
+  // building front faces (walls with sparse window-intensity modulation)
+  for (let k = 0; k < nBuilding && i < n; k++, i++) {
+    const b = buildings.length ? buildings[Math.floor(rand() * buildings.length)] : null;
+    if (!b) { i--; continue; }
+    pts[i * 3] = b.x + rr(-b.w / 2, b.w / 2);
+    pts[i * 3 + 1] = b.y + (b.y < 0 ? 1 : -1) * rr(0, 0.6);
+    pts[i * 3 + 2] = rr(0, b.h);
+    const winRow = Math.abs((pts[i * 3 + 2] % 3.5) - 1.75) < 0.5;
+    inten[i] = winRow ? 0.85 : 0.3;
+  }
+  // vegetation: ellipsoid canopies + trunks
+  for (let k = 0; k < nTree && i < n; k++, i++) {
+    const t = trees[Math.floor(rand() * trees.length)];
+    if (rand() < 0.2) { // trunk
+      pts[i * 3] = t.x + randGauss() * 0.1;
+      pts[i * 3 + 1] = t.y + randGauss() * 0.1;
+      pts[i * 3 + 2] = rr(0, t.h * 0.6);
+      inten[i] = 0.25;
+    } else { // canopy
+      const a = rr(0, Math.PI * 2), r2 = t.r * Math.sqrt(rand());
+      pts[i * 3] = t.x + Math.cos(a) * r2;
+      pts[i * 3 + 1] = t.y + Math.sin(a) * r2;
+      pts[i * 3 + 2] = t.h * 0.6 + rr(0, t.h * 0.4);
+      inten[i] = rr(0.4, 0.7);
     }
   }
   for (; i < n; i++) {

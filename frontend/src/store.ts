@@ -1,12 +1,15 @@
 import { create } from "zustand";
 
 export type Colormap =
-  | "turbo" | "viridis" | "neon" | "infrared" | "height" | "velocity";
-export const COLORMAPS: Colormap[] = ["neon", "turbo", "viridis", "infrared", "height", "velocity"];
+  | "neon" | "turbo" | "viridis" | "magma" | "infrared" | "height" | "class" | "zones";
+export const COLORMAPS: Colormap[] = [
+  "neon", "turbo", "viridis", "magma", "infrared", "height", "class", "zones",
+];
 
 export type StreamMode = "connecting" | "live" | "sim" | "file";
 export type ScenarioName = "urban" | "warehouse" | "drone";
 export type PipMode = "front" | "rear" | "bev";
+export type ViewLayout = "single" | "split" | "fusion";
 
 export interface SensorObject {
   id: number;
@@ -51,6 +54,11 @@ export const DEFAULT_ROI: RoiBounds = {
   xMin: -80, xMax: 80, yMin: -40, yMax: 40, zMin: -3, zMax: 40,
 };
 
+export interface StatSample { t: number; fps: number; latency: number; points: number; tracks: number; density: number }
+
+const HISTORY_LEN = 150;      // buffered telemetry frames (sampled)
+const STATS_LEN = 120;        // time-series samples
+
 interface VoxelState {
   mode: StreamMode;
   scenario: ScenarioName;
@@ -60,11 +68,18 @@ interface VoxelState {
   frameCount: number;
   lastFrame: FrameData | null;
 
+  // studio layout
+  viewLayout: ViewLayout;
+  paletteOpen: boolean;
+
   // layers
   showGround: boolean;
   showBoxes: boolean;
   showRadar: boolean;
   showPostFx: boolean;
+  showEdl: boolean;
+  showDensity: boolean;
+  showCropGizmo: boolean;
   pointSize: number;
   colormap: Colormap;
   intensityMin: number;
@@ -76,28 +91,42 @@ interface VoxelState {
   rulerPoints: [number, number, number][];
   inspectEnabled: boolean;
   inspectPoint: InspectPoint | null;
-  paletteOpen: boolean;
+  selectedTrack: number | null;
+
+  // timeline
+  history: FrameData[];
+  scrub: { active: boolean; index: number };
+  playSpeed: number; // 0.25 .. 4
+  stats: StatSample[];
 
   // pip
   pipMode: PipMode;
   pipLarge: boolean;
 
-  toggle: (k: "showGround" | "showBoxes" | "showRadar" | "showPostFx" | "paused" | "rulerActive" | "inspectEnabled" | "paletteOpen" | "pipLarge") => void;
+  toggle: (k: "showGround" | "showBoxes" | "showRadar" | "showPostFx" | "showEdl" | "showDensity" | "showCropGizmo" | "paused" | "rulerActive" | "inspectEnabled" | "paletteOpen" | "pipLarge") => void;
   setPoint: (v: number) => void;
   setColormap: (c: Colormap) => void;
   cycleColormap: () => void;
   setIntensity: (v: number) => void;
   setStats: (fps: number, latency: number) => void;
   setFrame: (f: FrameData) => void;
+  pushHistory: (f: FrameData) => void;
   setConnected: (c: boolean) => void;
   setMode: (m: StreamMode) => void;
   setScenario: (s: ScenarioName) => void;
+  setViewLayout: (v: ViewLayout) => void;
+  cycleViewLayout: () => void;
   addRulerPoint: (p: [number, number, number]) => void;
   clearRuler: () => void;
   setInspect: (p: InspectPoint | null) => void;
+  selectTrack: (id: number | null) => void;
   setRoi: (r: Partial<RoiBounds>) => void;
   resetRoi: () => void;
+  setScrub: (active: boolean, index: number) => void;
+  setPlaySpeed: (s: number) => void;
   setPipMode: (m: PipMode) => void;
+  /** Frame the viewport should currently render (live or scrubbed). */
+  displayFrame: () => FrameData;
 }
 
 export const useStore = create<VoxelState>((set, get) => ({
@@ -109,10 +138,16 @@ export const useStore = create<VoxelState>((set, get) => ({
   frameCount: 0,
   lastFrame: null,
 
+  viewLayout: "single",
+  paletteOpen: false,
+
   showGround: true,
   showBoxes: true,
   showRadar: true,
   showPostFx: true,
+  showEdl: true,
+  showDensity: false,
+  showCropGizmo: false,
   pointSize: 2.4,
   colormap: "neon",
   intensityMin: 0,
@@ -123,7 +158,12 @@ export const useStore = create<VoxelState>((set, get) => ({
   rulerPoints: [],
   inspectEnabled: true,
   inspectPoint: null,
-  paletteOpen: false,
+  selectedTrack: null,
+
+  history: [],
+  scrub: { active: false, index: 0 },
+  playSpeed: 1,
+  stats: [],
 
   pipMode: "front",
   pipLarge: false,
@@ -134,18 +174,48 @@ export const useStore = create<VoxelState>((set, get) => ({
   cycleColormap: () =>
     set((s) => ({ colormap: COLORMAPS[(COLORMAPS.indexOf(s.colormap) + 1) % COLORMAPS.length] })),
   setIntensity: (v) => set({ intensityMin: v }),
-  setStats: (fps, latency) => set({ fps, latencyMs: latency }),
+  setStats: (fps, latency) =>
+    set((s) => {
+      const f = s.lastFrame;
+      const sample: StatSample = {
+        t: Date.now(), fps, latency, points: f?.n ?? 0, tracks: f?.objects.length ?? 0,
+        density: f && f.n ? f.n / 25000 : 0,
+      };
+      return { fps, latencyMs: latency, stats: [...s.stats.slice(-(STATS_LEN - 1)), sample] };
+    }),
   setFrame: (f) => set((s) => ({ lastFrame: f, frameCount: s.frameCount + 1 })),
+  pushHistory: (f) =>
+    set((s) => ({
+      history: s.scrub.active ? s.history : [...s.history.slice(-(HISTORY_LEN - 1)), f],
+    })),
   setConnected: (c) => set({ connected: c }),
   setMode: (m) => set({ mode: m }),
   setScenario: (s) => set({ scenario: s }),
+  setViewLayout: (v) => set({ viewLayout: v }),
+  cycleViewLayout: () =>
+    set((s) => ({
+      viewLayout: s.viewLayout === "single" ? "split" : s.viewLayout === "split" ? "fusion" : "single",
+    })),
   addRulerPoint: (p) =>
     set((st) => ({ rulerPoints: st.rulerPoints.length >= 2 ? [p] : [...st.rulerPoints, p] })),
   clearRuler: () => set({ rulerPoints: [] }),
   setInspect: (p) => set({ inspectPoint: p }),
+  selectTrack: (id) => set({ selectedTrack: id }),
   setRoi: (r) => set((s) => ({ roi: { ...s.roi, ...r } })),
   resetRoi: () => set({ roi: { ...DEFAULT_ROI } }),
+  setScrub: (active, index) =>
+    set((s) => ({
+      scrub: { active, index: Math.max(0, Math.min(index, s.history.length - 1)) },
+      paused: active ? true : s.paused,
+    })),
+  setPlaySpeed: (speed) => set({ playSpeed: Math.max(0.25, Math.min(4, speed)) }),
   setPipMode: (m) => set({ pipMode: m }),
+  displayFrame: () => {
+    const s = get();
+    if (s.scrub.active && s.history.length > 0)
+      return s.history[Math.min(s.scrub.index, s.history.length - 1)] ?? s.lastFrame ?? EMPTY_FRAME;
+    return s.lastFrame ?? EMPTY_FRAME;
+  },
 }));
 
 const PREV_BOXES: Record<number, [number, number]> = {};

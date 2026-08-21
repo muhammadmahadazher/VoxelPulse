@@ -24,12 +24,17 @@ export function parseFrame(buf: ArrayBuffer): FrameData {
   };
 }
 
+let histCounter = 0;
+
 function ingest(frame: FrameData) {
   estimateVelocities(frame);
   if (useStore.getState().mode === "live") {
     useStore.getState().setStats(useStore.getState().fps, Math.max(0, Date.now() - frame.ts));
   }
-  if (!useStore.getState().paused) useStore.getState().setFrame(frame);
+  const s = useStore.getState();
+  if (!s.paused) s.setFrame(frame);
+  // sample telemetry history for the timeline scrubber (every 4th frame)
+  if (histCounter++ % 4 === 0 && !s.scrub.active) s.pushHistory(frame);
 }
 
 let last = performance.now();

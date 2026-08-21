@@ -1,4 +1,4 @@
-/** Session recording & snapshot exporters: watermarked PNG + .PLY point dump. */
+/** Data hub exporters: 4K snapshots, ROI-filtered .PLY / .PCD dumps. */
 import { useStore } from "../store";
 
 function findWebglCanvas(): HTMLCanvasElement | null {
@@ -20,46 +20,56 @@ function download(blob: Blob, filename: string) {
 
 const stamp = () => new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
 
-/** High-res canvas screenshot with embedded telemetry watermark. */
+/** 4K clean snapshot (upscaled from the live framebuffer, no UI overlays). */
 export function exportScreenshot() {
   const src = findWebglCanvas();
   if (!src) return;
-  const s = useStore.getState();
   const out = document.createElement("canvas");
-  out.width = src.width;
-  out.height = src.height;
+  out.width = 3840;
+  out.height = Math.round((3840 / src.width) * src.height / 2) * 2;
   const ctx = out.getContext("2d")!;
-  ctx.drawImage(src, 0, 0);
-  // telemetry watermark
-  const meta = [
-    "VOXELPULSE · REAL-TIME 3D SENSOR FUSION",
-    `${new Date().toISOString()}   mode=${s.mode}   colormap=${s.colormap}`,
-    `points=${s.lastFrame?.n ?? 0}   fps=${s.fps.toFixed(0)}   latency=${s.latencyMs.toFixed(0)}ms   tracks=${s.lastFrame?.objects.length ?? 0}`,
-  ];
-  const pad = Math.round(out.width * 0.012);
-  ctx.font = `${Math.max(11, Math.round(out.width / 110))}px monospace`;
-  meta.forEach((line, i) => {
-    const y = out.height - pad - (meta.length - 1 - i) * Math.max(16, out.width / 70);
-    ctx.fillStyle = "rgba(9,10,15,0.72)";
-    ctx.fillRect(pad - 6, y - Math.max(12, out.width / 90), ctx.measureText(line).width + 12, Math.max(16, out.width / 60));
-    ctx.fillStyle = i === 0 ? "#00F5FF" : "rgba(226,232,240,0.9)";
-    ctx.fillText(line, pad, y);
-  });
-  out.toBlob((b) => b && download(b, `voxelpulse-${stamp()}.png`), "image/png");
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(src, 0, 0, out.width, out.height);
+  out.toBlob((b) => b && download(b, `voxelpulse-4k-${stamp()}.png`), "image/png");
 }
 
-/** Export the current (ROI/identity — full) frame to binary .ply. */
-export function exportPly() {
+/** Collect the display frame filtered by the active ROI crop bounds. */
+function roiPoints(): { rows: string[][]; n: number } | null {
   const s = useStore.getState();
-  const f = s.lastFrame;
-  if (!f || !f.n) return;
-  const header =
-    `ply\nformat ascii 1.0\ncomment VoxelPulse export ${new Date().toISOString()}\n` +
-    `element vertex ${f.n}\n` +
-    `property float x\nproperty float y\nproperty float z\nproperty float intensity\nend_header\n`;
-  const rows = new Array<string>(f.n);
+  const f = s.displayFrame();
+  if (!f.n) return null;
+  const { roi } = s;
+  const rows: string[][] = [];
   for (let i = 0; i < f.n; i++) {
-    rows[i] = `${f.positions[i * 3].toFixed(3)} ${f.positions[i * 3 + 1].toFixed(3)} ${f.positions[i * 3 + 2].toFixed(3)} ${f.intensity[i].toFixed(3)}`;
+    const x = f.positions[i * 3], y = f.positions[i * 3 + 1], z = f.positions[i * 3 + 2];
+    if (x < roi.xMin || x > roi.xMax || y < roi.yMin || y > roi.yMax || z < roi.zMin || z > roi.zMax)
+      continue;
+    rows.push([x.toFixed(3), y.toFixed(3), z.toFixed(3), f.intensity[i].toFixed(3)]);
   }
-  download(new Blob([header, rows.join("\n")], { type: "application/octet-stream" }), `voxelpulse-${stamp()}.ply`);
+  return { rows, n: rows.length };
+}
+
+/** Export the ROI-filtered cloud to ascii .PLY. */
+export function exportPly() {
+  const data = roiPoints();
+  if (!data || !data.n) return;
+  const header =
+    `ply\nformat ascii 1.0\ncomment VoxelPulse ROI export ${new Date().toISOString()}\n` +
+    `element vertex ${data.n}\n` +
+    `property float x\nproperty float y\nproperty float z\nproperty float intensity\nend_header\n`;
+  const body = data.rows.map((r) => r.join(" ")).join("\n");
+  download(new Blob([header, body], { type: "application/octet-stream" }), `voxelpulse-roi-${stamp()}.ply`);
+}
+
+/** Export the ROI-filtered cloud to ascii .PCD. */
+export function exportPcd() {
+  const data = roiPoints();
+  if (!data || !data.n) return;
+  const header =
+    `# .PCD v0.7 - VoxelPulse ROI export\nVERSION 0.7\nFIELDS x y z intensity\n` +
+    `SIZE 4 4 4 4\nTYPE F F F F\nCOUNT 1 1 1 1\nWIDTH ${data.n}\nHEIGHT 1\n` +
+    `VIEWPOINT 0 0 0 1 0 0 0\nPOINTS ${data.n}\nDATA ascii\n`;
+  const body = data.rows.map((r) => r.join(" ")).join("\n");
+  download(new Blob([header, body], { type: "application/octet-stream" }), `voxelpulse-roi-${stamp()}.pcd`);
 }
