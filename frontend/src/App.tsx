@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { UploadCloud, LayoutGrid, Columns2, Focus } from "lucide-react";
+import { UploadCloud } from "lucide-react";
 import { Viewport, type ViewportHandle } from "./scene/Viewport";
-import { MenuBar, type MenuDef } from "./app/MenuBar";
+import { AppHeader } from "./app/AppHeader";
 import { Shell } from "./app/Shell";
 import { StatusBar } from "./app/StatusBar";
 import { StartScreen, type StartAction } from "./app/StartScreen";
@@ -17,15 +17,9 @@ import { exportScreenshot, exportPly, exportPcd } from "./utils/exporters";
 import {
   serializeProject, deserializeProject, downloadProject, saveAutosave, applyProject,
 } from "./utils/projectIo";
-import { useStore, type ViewLayout } from "./store";
+import { useStore } from "./store";
 import { useUiStore } from "./stores/uiStore";
 import { useProjectStore, type Layer } from "./stores/projectStore";
-
-const LAYOUT_TABS: { id: ViewLayout; label: string; icon: React.ReactNode }[] = [
-  { id: "single", label: "3D", icon: <LayoutGrid size={11} /> },
-  { id: "split", label: "3D + BEV", icon: <Columns2 size={11} /> },
-  { id: "fusion", label: "FUSION", icon: <Focus size={11} /> },
-];
 
 let layerSeq = 0;
 const nextLayerId = () => `lyr-${Date.now().toString(36)}-${layerSeq++}`;
@@ -50,7 +44,6 @@ function ensureDefaultLayers(mode: "demo" | "stream") {
 
 export default function App() {
   const handleRef = useRef<ViewportHandle>(null);
-  const viewLayout = useStore((s) => s.viewLayout);
   const mode = useStore((s) => s.mode);
   const projectOpen = useProjectStore((s) => s.open);
   const [dragOver, setDragOver] = useState(false);
@@ -58,18 +51,33 @@ export default function App() {
 
   const ui = useUiStore();
 
+  // theme attribute for light/dark token switching
+  useEffect(() => {
+    document.documentElement.dataset.theme = ui.colorMode;
+  }, [ui.colorMode]);
+
   // ---- boot: connect stream but DO NOT auto-open a project (start screen first)
   useEffect(() => {
     connectStream();
     appendConsole("workspace ready — awaiting project");
+    // deep link for testing / sharing: ?project=1 opens an empty project
+    if (new URLSearchParams(location.search).get("project") === "1") {
+      useProjectStore.getState().newProject();
+    }
   }, []);
 
-  // when a project opens and a stream/demo is running, attach default layers
+  // responsive density: on first visit at small sizes, collapse the bottom dock
+  useEffect(() => {
+    if (!localStorage.getItem("voxelpulse.ui.v1") && window.innerWidth < 1366) {
+      useUiStore.getState().setPanel("bottom", false);
+    }
+  }, []);
+
   useEffect(() => {
     if (projectOpen && (mode === "sim" || mode === "live")) ensureDefaultLayers(mode === "sim" ? "demo" : "stream");
   }, [projectOpen, mode]);
 
-  // autosave (project + layout) every 30 s when dirty
+  // autosave every 30 s when dirty
   useEffect(() => {
     const iv = setInterval(() => {
       const p = useProjectStore.getState();
@@ -99,7 +107,7 @@ export default function App() {
     appendConsole(`project saved — ${useProjectStore.getState().savedRef ?? name}`);
   };
 
-  const openProject = async () => {
+  const openProject = () => {
     const input = document.createElement("input");
     input.type = "file";
     input.accept = ".vxp,application/json";
@@ -138,7 +146,6 @@ export default function App() {
       const buf = await file.arrayBuffer();
       const frame = parsePointFile(file.name, buf);
       loadStaticFrame(frame, file.name);
-      // compute bounds for the layer
       let mn = [Infinity, Infinity, Infinity], mx = [-Infinity, -Infinity, -Infinity];
       for (let i = 0; i < frame.n; i++) {
         for (let k = 0; k < 3; k++) {
@@ -162,6 +169,7 @@ export default function App() {
   const startExample = (example: string) => {
     useProjectStore.getState().newProject();
     setSimScenario(example as "urban" | "warehouse" | "drone");
+    useStore.setState({ colormap: "height" });
     appendConsole(`demo scene loaded — ${example}`);
   };
 
@@ -187,7 +195,7 @@ export default function App() {
       e.preventDefault();
       setDragOver(false);
       const file = e.dataTransfer?.files?.[0];
-      if (file?.name.toLowerCase().endsWith(".vxp")) return; // handled via Open for now
+      if (file?.name.toLowerCase().endsWith(".vxp")) return;
       if (file) void importFile(file);
     };
     window.addEventListener("dragover", onOver);
@@ -213,6 +221,7 @@ export default function App() {
       if (mod && e.key.toLowerCase() === "s") { e.preventDefault(); saveProject(e.shiftKey); return; }
       if (mod && e.key.toLowerCase() === "b") { e.preventDefault(); useUiStore.getState().togglePanel("left"); return; }
       if (mod && e.key.toLowerCase() === "j") { e.preventDefault(); useUiStore.getState().togglePanel("bottom"); return; }
+      if (e.shiftKey && e.key.toLowerCase() === "f") { e.preventDefault(); useUiStore.getState().toggleMaximized(); return; }
       if (e.code === "Space") {
         e.preventDefault();
         if (s.scrub.active) { s.setScrub(false, 0); s.toggle("paused"); setStreamPaused(false); }
@@ -236,25 +245,27 @@ export default function App() {
     };
   }, []);
 
-  // ---- menus (zero fake UI: working items only) ---------------------------
-  const menus: MenuDef[] = [
+  // ---- menus (zero fake UI) -----------------------------------------------
+  const menus = [
     {
       id: "file", label: "File",
       items: [
         { id: "new", label: "New Project", run: newProject },
-        { id: "open", label: "Open Project…", run: openProject },
-        { id: "save", label: "Save", run: () => saveProject(false), disabled: !projectOpen },
-        { id: "saveAs", label: "Save As…", separatorAfter: true, run: () => saveProject(true), disabled: !projectOpen },
+        { id: "open", label: "Open Project…", shortcut: "⌘O", run: openProject },
+        { id: "save", label: "Save", shortcut: "⌘S", run: () => saveProject(false), disabled: !projectOpen },
+        { id: "saveAs", label: "Save As…", shortcut: "⇧⌘S", separatorAfter: true, run: () => saveProject(true), disabled: !projectOpen },
         { id: "add", label: "Add Point Cloud…", run: addData },
       ],
     },
     {
       id: "view", label: "View",
       items: [
-        { id: "vp-left", label: "Toggle Layers Panel", shortcut: "⌘B", run: () => useUiStore.getState().togglePanel("left") },
-        { id: "vp-right", label: "Toggle Inspector", run: () => useUiStore.getState().togglePanel("right") },
-        { id: "vp-bottom", label: "Toggle Timeline / Console", shortcut: "⌘J", run: () => useUiStore.getState().togglePanel("bottom") },
-        { id: "vp-theme", label: "Presentation Mode", separatorAfter: true, run: () => useUiStore.getState().toggleTheme() },
+        { id: "vp-left", label: "Layers Panel", shortcut: "⌘B", run: () => useUiStore.getState().togglePanel("left") },
+        { id: "vp-right", label: "Inspector", run: () => useUiStore.getState().togglePanel("right") },
+        { id: "vp-bottom", label: "Timeline / Console", shortcut: "⌘J", run: () => useUiStore.getState().togglePanel("bottom") },
+        { id: "vp-max", label: "Maximize Viewport", shortcut: "⇧F", separatorAfter: true, run: () => useUiStore.getState().toggleMaximized() },
+        { id: "vp-theme", label: "Light / Dark Theme", run: () => useUiStore.getState().toggleColorMode() },
+        { id: "vp-pres", label: "Presentation Mode", separatorAfter: true, run: () => useUiStore.getState().toggleTheme() },
         { id: "cam-orbit", label: "Camera: Orbit Reset", shortcut: "R", run: () => handleRef.current?.reset() },
         { id: "cam-top", label: "Camera: Top-Down", shortcut: "T", run: () => handleRef.current?.topDown() },
         { id: "cam-chase", label: "Camera: Chase", shortcut: "F", run: () => handleRef.current?.chase() },
@@ -279,12 +290,12 @@ export default function App() {
           id: "h-keys", label: "Keyboard Shortcuts", run: () =>
             setNotice({
               text: "Shortcuts",
-              detail: "⌘K palette · ⌘O open · ⌘S save · ⌘B layers · ⌘J timeline · Space pause · V layout · C colormap · M ruler · X crop · R/T/F cameras · S snapshot · E export · Esc deselect",
+              detail: "⌘K palette · ⌘O open · ⌘S save · ⌘B layers · ⌘J timeline · ⇧F maximize · Space pause · V layout · C colormap · M ruler · X crop · R/T/F cameras · S snapshot · E export · Esc deselect",
             }),
         },
         {
           id: "h-about", label: "About VoxelPulse", run: () =>
-            setNotice({ text: "VoxelPulse v4.0 — Spatial Computing Studio", detail: "Open-source · MIT · point-cloud-first 3D workstation. github.com/muhammadmahadazher/VoxelPulse" }),
+            setNotice({ text: "VoxelPulse v4 — Spatial Computing Studio", detail: "Open-source · MIT · github.com/muhammadmahadazher/VoxelPulse" }),
         },
       ],
     },
@@ -305,8 +316,8 @@ export default function App() {
 
   return (
     <Shell
-      menuBar={<MenuBar menus={menus} />}
-      leftPanel={<LayersPanel onZoomTo={onZoomTo} />}
+      header={<AppHeader menus={menus} onAddData={addData} onMaximize={() => useUiStore.getState().toggleMaximized()} />}
+      leftPanel={<LayersPanel onZoomTo={onZoomTo} onAddData={addData} />}
       rightPanel={<InspectorPanel />}
       bottomPanel={<BottomPanel />}
       statusBar={<StatusBar />}
@@ -317,22 +328,7 @@ export default function App() {
       rightOpen={ui.panels.right && projectOpen}
       bottomOpen={ui.panels.bottom && projectOpen}
       onResize={ui.setLayout}
-      canvasOverlay={
-        projectOpen ? (
-          <>
-            <div className="vp-overlay absolute left-1/2 top-3 z-20 flex -translate-x-1/2 gap-1 rounded-lg border p-1">
-              {LAYOUT_TABS.map((t) => (
-                <button key={t.id} onClick={() => useStore.getState().setViewLayout(t.id)}
-                  className={`vp-focusable flex items-center gap-1 rounded px-2 py-1 font-[var(--vp-font-mono)] text-[9px] font-semibold tracking-wider transition-colors
-                    ${viewLayout === t.id ? "bg-[var(--vp-accent-soft)] text-[var(--vp-accent)]" : "text-[var(--vp-text-3)] hover:text-[var(--vp-text-1)]"}`}>
-                  {t.icon}{t.label}
-                </button>
-              ))}
-            </div>
-            <InspectorProbe />
-          </>
-        ) : null
-      }
+      canvasOverlay={projectOpen ? <ProbeChip /> : null}
     >
       <ErrorBoundary>
         <Viewport handleRef={handleRef} />
@@ -351,10 +347,10 @@ export default function App() {
           <motion.div
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center border-2 border-dashed border-[var(--vp-accent)]/60"
-          >
-            <div className="vp-overlay flex flex-col items-center gap-2 rounded-xl px-10 py-8">
-              <UploadCloud size={32} className="text-[var(--vp-accent)]" />
-              <div className="text-[12px] text-[var(--vp-text-1)]">drop .las / .ply / .pcd / .xyz to add a layer</div>
+            style={{ background: "var(--vp-accent-soft)" }}>
+            <div className="vp-floating flex flex-col items-center gap-2 rounded-[var(--vp-r-lg)] border px-10 py-8">
+              <UploadCloud size={30} className="text-[var(--vp-accent)]" />
+              <div className="text-[13px] text-[var(--vp-text-1)]">drop .las / .ply / .pcd / .xyz to add a layer</div>
             </div>
           </motion.div>
         )}
@@ -364,12 +360,13 @@ export default function App() {
         {notice && (
           <motion.div
             initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+            transition={{ duration: 0.15 }}
             onClick={() => setNotice(null)}
-            className="vp-overlay absolute left-1/2 top-10 z-50 w-[420px] -translate-x-1/2 cursor-pointer rounded-lg p-4"
+            className="vp-floating absolute left-1/2 top-4 z-50 w-[440px] -translate-x-1/2 cursor-pointer rounded-[var(--vp-r-lg)] border p-4"
           >
-            <div className="text-[12px] font-semibold text-[var(--vp-text-1)]">{notice.text}</div>
-            {notice.detail && <div className="mt-1 text-[11px] leading-relaxed text-[var(--vp-text-2)]">{notice.detail}</div>}
-            <div className="mt-2 text-[10px] text-[var(--vp-text-3)]">click to dismiss</div>
+            <div className="text-[13px] font-semibold text-[var(--vp-text-1)]">{notice.text}</div>
+            {notice.detail && <div className="mt-1 text-[12.5px] leading-relaxed text-[var(--vp-text-2)]">{notice.detail}</div>}
+            <div className="mt-2 text-[11.5px] text-[var(--vp-text-3)]">click to dismiss</div>
           </motion.div>
         )}
       </AnimatePresence>
@@ -380,12 +377,12 @@ export default function App() {
 }
 
 /** Cursor probe chip floating above the canvas (details also in inspector). */
-function InspectorProbe() {
+function ProbeChip() {
   const pt = useStore((s) => s.inspectPoint);
   const rulerActive = useStore((s) => s.rulerActive);
   if (!pt || rulerActive) return null;
   return (
-    <div className="vp-overlay pointer-events-none absolute bottom-3 left-1/2 z-20 -translate-x-1/2 rounded-md border px-3 py-1 font-[var(--vp-font-mono)] text-[10px] text-[var(--vp-text-2)]">
+    <div className="vp-floating pointer-events-none absolute bottom-3 left-1/2 z-20 -translate-x-1/2 rounded-[var(--vp-r-md)] border px-3 py-1.5 font-[var(--vp-font-mono)] text-[11.5px] text-[var(--vp-text-2)]">
       X {pt.x.toFixed(2)} · Y {pt.y.toFixed(2)} · Z {pt.z.toFixed(2)} · R {pt.range.toFixed(1)} m · I {Math.round(pt.intensity * 255)}
     </div>
   );

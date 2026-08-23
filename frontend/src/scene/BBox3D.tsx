@@ -120,9 +120,8 @@ export function BBox3D({ obj }: { obj: SensorObject }) {
       <Html center distanceFactor={55} position={[0, dz / 2 + 0.9, 0]} zIndexRange={[10, 0]}>
         <div className="mono select-none whitespace-nowrap rounded px-1.5 py-0.5 text-[10px] font-semibold"
           style={{
-            color, background: "rgba(7,8,11,0.85)",
-            border: `1px solid ${selected ? color : color + "55"}`,
-            boxShadow: selected ? `0 0 14px ${color}88` : `0 0 8px ${color}33`,
+            color, background: "rgba(12, 15, 22, 0.82)",
+            border: `1px solid ${selected ? color : color + "40"}`,
           }}>
           {obj.label.toUpperCase()} · {dist}m · {(obj.conf * 100).toFixed(0)}%
         </div>

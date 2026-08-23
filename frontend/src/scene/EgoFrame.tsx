@@ -84,13 +84,13 @@ export function EgoFrame() {
   return (
     <group>
       {showGround && (
-        <gridHelper args={[200, 50, "#123046", "#0c1a26"]} position={[0, -0.06, 0]} />
+        <gridHelper args={[200, 50, "#2a3348", "#1a2130"]} position={[0, -0.06, 0]} />
       )}
       {showRadar && (
         <group>
           {rings.map((geo, i) => (
             <lineSegments key={RING_RADII[i]} geometry={geo}>
-              <lineBasicMaterial color="#38BDF8" transparent opacity={RING_RADII[i] >= 50 ? 0.14 : 0.32}
+              <lineBasicMaterial color="#4d8fe8" transparent opacity={RING_RADII[i] >= 50 ? 0.1 : 0.22}
                 blending={THREE.AdditiveBlending} depthWrite={false} />
             </lineSegments>
           ))}

@@ -76,23 +76,24 @@ export function PiP({ inline = false }: { inline?: boolean }) {
     <div
       className={
         inline
-          ? "overflow-hidden rounded-lg border border-white/10 bg-black/30 p-1.5"
-          : "glass absolute right-3 top-16 z-20 overflow-hidden rounded-xl border-white/10 p-2"
+          ? "overflow-hidden rounded-[var(--vp-r-md)] border bg-black/40 p-1.5"
+          : "vp-panel absolute right-3 top-16 z-20 overflow-hidden rounded-[var(--vp-r-lg)] border p-2"
       }
       style={!inline ? { width: large ? 340 : 264 } : undefined}
     >
       <div className="mb-1 flex items-center gap-1.5 px-1">
-        <Camera size={12} className="text-sky-400" />
+        <Camera size={13} className="text-[var(--vp-accent)]" />
+        <span className="text-[11px] font-medium text-[var(--vp-text-2)]">CAM 01</span>
         {MODES.map((m) => (
           <button key={m.id} onClick={() => setMode(m.id)}
-            className={`mono rounded px-1.5 py-0.5 text-[9px] tracking-wider transition ${
-              mode === m.id ? "bg-sky-400/20 text-sky-300" : "text-slate-400 hover:text-slate-200"}`}>
+            className={`vp-focusable rounded-[var(--vp-r-sm)] px-1.5 py-0.5 text-[10px] font-medium tracking-wider transition-colors
+              ${mode === m.id ? "bg-[var(--vp-accent-soft)] text-[var(--vp-accent)]" : "text-[var(--vp-text-3)] hover:text-[var(--vp-text-2)]"}`}>
             {m.label}
           </button>
         ))}
         <button onClick={() => useStore.getState().toggle("pipLarge")}
-          className="ml-auto text-slate-400 hover:text-sky-300" title="Resize">
-          {large ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
+          className="ml-auto text-[var(--vp-text-3)] hover:text-[var(--vp-accent)]" title="Resize">
+          {large ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
         </button>
       </div>
       <div className="relative">
@@ -103,16 +104,16 @@ export function PiP({ inline = false }: { inline?: boolean }) {
               style={{
                 left: `${(mode === "rear" ? 1 - o.u - o.w : o.u) * 100}%`, top: `${o.v * 100}%`,
                 width: `${o.w * 100}%`, height: `${o.h * 100}%`,
-                border: "1px solid #38BDF8", boxShadow: "0 0 6px rgba(56,189,248,0.5)",
+                border: "1px solid var(--vp-accent)",
               }}>
-              <span className="mono absolute -top-4 left-0 whitespace-nowrap text-[9px] text-sky-300">
+              <span className="absolute -top-4 left-0 whitespace-nowrap font-[var(--vp-font-mono)] text-[9px] text-[var(--vp-accent)]">
                 {o.label}
               </span>
             </div>
           ))}
         <div className="pointer-events-none absolute inset-0">
-          <div className="absolute left-1/2 top-0 h-full w-px bg-sky-400/20" />
-          <div className="absolute top-1/2 left-0 h-px w-full bg-sky-400/20" />
+          <div className="absolute left-1/2 top-0 h-full w-px" style={{ background: "rgba(125,165,220,0.25)" }} />
+          <div className="absolute top-1/2 left-0 h-px w-full" style={{ background: "rgba(125,165,220,0.25)" }} />
         </div>
       </div>
     </div>

@@ -3,6 +3,7 @@
 import { create } from "zustand";
 
 export type ThemeMode = "pro" | "presentation";
+export type ColorMode = "dark" | "light";
 
 export interface UiLayout {
   leftWidth: number;
@@ -19,6 +20,8 @@ interface UiState {
   layout: UiLayout;
   panels: UiPanels;
   theme: ThemeMode;
+  colorMode: ColorMode;
+  maximized: boolean;
   bottomTab: "timeline" | "console";
   menuOpen: string | null;
   setPanel: (k: keyof UiPanels, open: boolean) => void;
@@ -26,6 +29,10 @@ interface UiState {
   setLayout: (patch: Partial<UiLayout>) => void;
   setTheme: (t: ThemeMode) => void;
   toggleTheme: () => void;
+  setColorMode: (m: ColorMode) => void;
+  toggleColorMode: () => void;
+  setMaximized: (v: boolean) => void;
+  toggleMaximized: () => void;
   setBottomTab: (t: "timeline" | "console") => void;
   setMenuOpen: (m: string | null) => void;
 }
@@ -62,6 +69,8 @@ export const useUiStore = create<UiState>((set, get) => ({
   layout: initial.layout,
   panels: initial.panels,
   theme: "pro",
+  colorMode: "dark",
+  maximized: false,
   bottomTab: "timeline",
   menuOpen: null,
 
@@ -79,6 +88,10 @@ export const useUiStore = create<UiState>((set, get) => ({
   },
   setTheme: (theme) => set({ theme }),
   toggleTheme: () => set((s) => ({ theme: s.theme === "pro" ? "presentation" : "pro" })),
+  setColorMode: (colorMode) => set({ colorMode }),
+  toggleColorMode: () => set((s) => ({ colorMode: s.colorMode === "dark" ? "light" : "dark" })),
+  setMaximized: (maximized) => set({ maximized }),
+  toggleMaximized: () => set((s) => ({ maximized: !s.maximized })),
   setBottomTab: (bottomTab) => set({ bottomTab }),
   setMenuOpen: (menuOpen) => set({ menuOpen }),
 }));

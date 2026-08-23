@@ -148,15 +148,21 @@ function Ruler() {
 function PostFx() {
   const enabled = useStore((s) => s.showPostFx);
   const edl = useStore((s) => s.showEdl);
+  const edlStrength = useStore((s) => s.edlStrength);
   const theme = useUiStore((s) => s.theme);
+  const colorMode = useUiStore((s) => s.colorMode);
   const caOffset = useMemo(() => new THREE.Vector2(0.0006, 0.0006), []);
   if (!enabled) return null;
   return (
     <EffectComposer>
-      {edl ? <EyeDomeLighting strength={1.4} radius={1.6} /> : <></>}
-      <Bloom intensity={theme === "presentation" ? 0.9 : 0.35} luminanceThreshold={theme === "presentation" ? 0.5 : 0.62} luminanceSmoothing={0.25} mipmapBlur />
-      <ChromaticAberration offset={caOffset} radialModulation={false} modulationOffset={0} blendFunction={BlendFunction.NORMAL} />
-      <Vignette eskil={false} offset={0.22} darkness={theme === "presentation" ? 0.75 : 0.55} />
+      {edl ? <EyeDomeLighting strength={edlStrength} radius={1.6} /> : <></>}
+      <Bloom intensity={theme === "presentation" ? 0.9 : 0.3} luminanceThreshold={theme === "presentation" ? 0.5 : 0.65} luminanceSmoothing={0.25} mipmapBlur />
+      {theme === "presentation" ? (
+        <ChromaticAberration offset={caOffset} radialModulation={false} modulationOffset={0} blendFunction={BlendFunction.NORMAL} />
+      ) : (
+        <></>
+      )}
+      <Vignette eskil={false} offset={0.22} darkness={theme === "presentation" ? 0.75 : colorMode === "light" ? 0.35 : 0.5} />
     </EffectComposer>
   );
 }
@@ -252,7 +258,7 @@ export function Viewport({ handleRef }: { handleRef: React.MutableRefObject<View
     const controls = controlsRef.current;
     if (!controls) return;
     const cam = controls.object;
-    if (mode === "orbit") { cam.position.set(30, 24, 30); controls.target.set(20, 0, 0); }
+    if (mode === "orbit") { cam.position.set(30, 13, 16); controls.target.set(30, 3, 0); }
     if (mode === "top") { cam.position.set(25, 90, 0.01); controls.target.set(25, 0, 0); }
     if (mode === "chase") { cam.position.set(-6, 4, 0); controls.target.set(25, 0, 0); }
     controls.update();
@@ -299,17 +305,17 @@ export function Viewport({ handleRef }: { handleRef: React.MutableRefObject<View
     <div className="absolute inset-0 flex">
       <div className="relative h-full" style={{ width: secondary ? "50%" : "100%" }}>
         <Canvas
-          camera={{ position: [30, 24, 30], fov: 55, near: 0.1, far: 500 }}
+          camera={{ position: [30, 13, 16], fov: 55, near: 0.1, far: 500 }}
           gl={{ antialias: true, powerPreference: "high-performance", preserveDrawingBuffer: true }}
-          onCreated={({ gl }) => gl.setClearColor("#07080B")}
+          onCreated={({ gl }) => gl.setClearColor("#0c0f16")}
         >
-          <fog attach="fog" args={["#07080B", 60, 180]} />
+          <fog attach="fog" args={["#0c0f16", 70, 220]} />
           <ambientLight intensity={0.4} />
           <SceneContents />
           <OrbitControls makeDefault maxPolarAngle={Math.PI / 2.05} dampingFactor={0.08} />
           <ControlsBinder controlsRef={controlsRef} />
         </Canvas>
-        <div className="mono pointer-events-none absolute bottom-2 left-2 rounded bg-black/40 px-1.5 py-0.5 text-[9px] tracking-widest text-sky-400">
+        <div className="mono pointer-events-none absolute bottom-2 left-2 rounded bg-black/30 px-1.5 py-0.5 text-[9px] tracking-widest text-sky-400">
           3D ORBIT {viewLayout !== "single" && "· PERSP"}
         </div>
       </div>

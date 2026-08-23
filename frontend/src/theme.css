@@ -1,89 +1,145 @@
 /**
- * VoxelPulse design system — "Spatial Glass"
- * Tokens only; components consume via var(--*) or Tailwind arbitrary values.
- * See docs/design-research.md for the rationale.
+ * VoxelPulse design system — "Spatial Glass" v2 (Phase 1.5)
+ * Full token system: surfaces, typography, control geometry, states, layout,
+ * motion, elevation. Semantic light-theme overrides included.
+ * Rationale: docs/visual-benchmark-v4.md
  */
 :root {
-  /* surfaces */
-  --vp-canvas: #07080b;
-  --vp-panel: #0e1014;
-  --vp-panel-raised: #14171d;
-  --vp-overlay: rgba(14, 16, 20, 0.85);
-  --vp-overlay-blur: 16px;
+  /* ---- surfaces (5 levels, cool graphite — never pure black) ---- */
+  --vp-canvas: #0c0f16;          /* 3D scene backdrop */
+  --vp-canvas-fog: #10141d;
+  --vp-chrome: #13161f;          /* app header / status bar */
+  --vp-panel: #171b26;           /* docked panels */
+  --vp-raised: #1e2330;          /* raised controls, inputs, rows on hover */
+  --vp-floating: rgba(23, 27, 38, 0.88); /* palette, popovers, menus */
+  --vp-hover: rgba(255, 255, 255, 0.05);
+  --vp-selected: rgba(84, 140, 235, 0.16);
 
-  /* borders / dividers */
+  /* ---- borders / dividers ---- */
   --vp-border: rgba(255, 255, 255, 0.08);
   --vp-border-strong: rgba(255, 255, 255, 0.14);
-  --vp-divider: rgba(255, 255, 255, 0.06);
+  --vp-divider: rgba(255, 255, 255, 0.07);
 
-  /* text */
-  --vp-text-1: #e6eaf0;
-  --vp-text-2: #9aa3b2;
-  --vp-text-3: #5c6675;
+  /* ---- text ---- */
+  --vp-text-1: #e8ecf4;
+  --vp-text-2: #a7b0c0;
+  --vp-text-3: #6b7484;
+  --vp-text-on-accent: #ffffff;
 
-  /* accents (restrained) */
-  --vp-accent: #4da3ff;
-  --vp-accent-soft: rgba(77, 163, 255, 0.14);
-  --vp-highlight: #f59e0b;
-  --vp-success: #34d399;
-  --vp-warning: #f59e0b;
-  --vp-error: #f87171;
+  /* ---- accents (one primary; others are semantic only) ---- */
+  --vp-accent: #4d8fe8;
+  --vp-accent-hover: #6ba3f0;
+  --vp-accent-soft: rgba(77, 143, 232, 0.16);
+  --vp-success: #3fca8f;
+  --vp-warning: #e2a336;
+  --vp-error: #e5614f;
+  --vp-demo: var(--vp-warning);
 
-  /* GIS semantic colors */
+  /* ---- GIS semantic colors (data) ---- */
   --vp-geo-ground: #57946f;
   --vp-geo-veg: #3e8e5a;
   --vp-geo-building: #c8a06a;
-  --vp-geo-water: #4da3ff;
+  --vp-geo-water: #4d8fe8;
   --vp-geo-road: #8a8f9c;
 
-  /* spacing scale (px) */
-  --vp-sp-1: 4px;
-  --vp-sp-2: 8px;
-  --vp-sp-3: 12px;
-  --vp-sp-4: 16px;
+  /* ---- typography ---- */
+  --vp-font-ui: Inter, "Segoe UI", system-ui, sans-serif;
+  --vp-font-mono: "JetBrains Mono", "Geist Mono", ui-monospace, "Cascadia Mono", monospace;
+  --vp-fs-hero: 34px;
+  --vp-fs-title: 20px;
+  --vp-fs-panel: 12.5px;   /* panel titles — semibold */
+  --vp-fs-ui: 13px;        /* primary UI */
+  --vp-fs-secondary: 12px; /* secondary UI */
+  --vp-fs-meta: 11.5px;    /* metadata / status */
+  --vp-fs-mono: 11.5px;    /* numeric/technical */
 
-  /* radius */
+  /* ---- control geometry ---- */
+  --vp-ctl-sm: 24px;
+  --vp-ctl-md: 28px;
+  --vp-ctl-lg: 32px;
+  --vp-ctl-xl: 36px;       /* primary actions */
+  --vp-icon-sm: 14px;
+  --vp-icon-md: 16px;
+  --vp-icon-lg: 18px;
   --vp-r-sm: 4px;
   --vp-r-md: 6px;
-  --vp-r-lg: 10px;
+  --vp-r-lg: 8px;
 
-  /* elevation (floating chrome only) */
-  --vp-shadow-1: 0 4px 16px rgba(0, 0, 0, 0.4);
-  --vp-shadow-2: 0 12px 40px rgba(0, 0, 0, 0.55);
+  /* ---- layout ---- */
+  --vp-rail-w: 46px;
+  --vp-header-1: 34px;
+  --vp-header-2: 40px;
+  --vp-status-h: 26px;
+  --vp-menu-row: 30px;
+  --vp-panel-min: 200px;
 
-  /* motion */
+  /* ---- motion ---- */
   --vp-dur-fast: 90ms;
-  --vp-dur: 140ms;
-  --vp-dur-slow: 200ms;
+  --vp-dur: 150ms;
+  --vp-dur-slow: 220ms;
   --vp-ease: cubic-bezier(0.25, 0.46, 0.45, 0.94);
 
-  /* focus */
-  --vp-focus: 0 0 0 2px rgba(77, 163, 255, 0.7);
+  /* ---- elevation ---- */
+  --vp-shadow-1: 0 2px 8px rgba(0, 0, 0, 0.35);
+  --vp-shadow-2: 0 8px 28px rgba(0, 0, 0, 0.5);
+  --vp-shadow-3: 0 16px 48px rgba(0, 0, 0, 0.6);
 
-  /* type */
-  --vp-font-ui: Inter, "Segoe UI", system-ui, sans-serif;
-  --vp-font-mono: "JetBrains Mono", "Geist Mono", ui-monospace, monospace;
-  --vp-fs-xs: 10px;
-  --vp-fs-sm: 11px;
-  --vp-fs-md: 12px;
+  /* ---- focus ---- */
+  --vp-focus: 0 0 0 2px rgba(77, 143, 232, 0.75);
+}
+
+[data-theme="light"] {
+  --vp-canvas: #eef0f4;
+  --vp-canvas-fog: #e6e9ef;
+  --vp-chrome: #ffffff;
+  --vp-panel: #f7f8fa;
+  --vp-raised: #edeff3;
+  --vp-floating: rgba(255, 255, 255, 0.92);
+  --vp-hover: rgba(23, 30, 45, 0.05);
+  --vp-selected: rgba(64, 122, 214, 0.14);
+
+  --vp-border: rgba(23, 30, 45, 0.12);
+  --vp-border-strong: rgba(23, 30, 45, 0.2);
+  --vp-divider: rgba(23, 30, 45, 0.09);
+
+  --vp-text-1: #1a2030;
+  --vp-text-2: #4d566a;
+  --vp-text-3: #8b93a4;
+
+  --vp-accent: #2f6fd0;
+  --vp-accent-hover: #3d7ede;
+  --vp-accent-soft: rgba(47, 111, 208, 0.12);
+
+  --vp-shadow-1: 0 2px 8px rgba(23, 30, 45, 0.12);
+  --vp-shadow-2: 0 8px 28px rgba(23, 30, 45, 0.16);
+  --vp-shadow-3: 0 16px 48px rgba(23, 30, 45, 0.2);
+  --vp-focus: 0 0 0 2px rgba(47, 111, 208, 0.6);
 }
 
 @media (prefers-reduced-motion: reduce) {
   :root { --vp-dur-fast: 0ms; --vp-dur: 0ms; --vp-dur-slow: 0ms; }
 }
 
-/* primitive surfaces */
-.vp-panel {
-  background: var(--vp-panel);
-  border-color: var(--vp-border);
-}
-.vp-overlay {
-  background: var(--vp-overlay);
-  backdrop-filter: blur(var(--vp-overlay-blur));
+/* ---- primitives ---- */
+.vp-chrome { background: var(--vp-chrome); border-color: var(--vp-border); }
+.vp-panel { background: var(--vp-panel); border-color: var(--vp-border); }
+.vp-raised { background: var(--vp-raised); border-color: var(--vp-border); }
+.vp-floating {
+  background: var(--vp-floating);
+  backdrop-filter: blur(18px) saturate(1.1);
   border-color: var(--vp-border-strong);
-  box-shadow: var(--vp-shadow-2);
+  box-shadow: var(--vp-shadow-3);
 }
-.vp-focusable:focus-visible {
-  outline: none;
-  box-shadow: var(--vp-focus);
+.vp-focusable:focus-visible { outline: none; box-shadow: var(--vp-focus); }
+
+/* subtle scrollbars — discoverable, not browser-default */
+* { scrollbar-width: thin; scrollbar-color: var(--vp-border-strong) transparent; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--vp-border-strong);
+  border-radius: 5px;
+  border: 3px solid transparent;
+  background-clip: content-box;
 }
+::-webkit-scrollbar-thumb:hover { background-color: var(--vp-text-3); background-clip: content-box; }

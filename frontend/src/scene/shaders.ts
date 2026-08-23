@@ -115,7 +115,7 @@ void main() {
   else if (colormapMode == 5) c = heightMap(tHeight);
   else if (colormapMode == 6) c = classification(vHeight, vIntensity);
   else c = zones(vRange);
-  c *= 1.0 + 0.15 * (1.0 - tRange);
+  c *= 1.0 + 0.3 * (1.0 - tRange);
 
   // anti-aliased soft gaussian disc sprite
   vec2 uv = gl_PointCoord * 2.0 - 1.0;

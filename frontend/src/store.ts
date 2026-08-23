@@ -79,6 +79,7 @@ interface VoxelState {
   showRadar: boolean;
   showPostFx: boolean;
   showEdl: boolean;
+  edlStrength: number;
   showDensity: boolean;
   showCropGizmo: boolean;
   pointSize: number;
@@ -109,6 +110,7 @@ interface VoxelState {
   setColormap: (c: Colormap) => void;
   cycleColormap: () => void;
   setIntensity: (v: number) => void;
+  setEdlStrength: (v: number) => void;
   setStats: (fps: number, latency: number) => void;
   setFrame: (f: FrameData) => void;
   pushHistory: (f: FrameData) => void;
@@ -148,10 +150,11 @@ export const useStore = create<VoxelState>((set, get) => ({
   showRadar: true,
   showPostFx: true,
   showEdl: true,
+  edlStrength: 1.2,
   showDensity: false,
   showCropGizmo: false,
   pointSize: 2.4,
-  colormap: "neon",
+  colormap: "height",
   intensityMin: 0,
   paused: false,
   roi: { ...DEFAULT_ROI },
@@ -176,6 +179,7 @@ export const useStore = create<VoxelState>((set, get) => ({
   cycleColormap: () =>
     set((s) => ({ colormap: COLORMAPS[(COLORMAPS.indexOf(s.colormap) + 1) % COLORMAPS.length] })),
   setIntensity: (v) => set({ intensityMin: v }),
+  setEdlStrength: (v) => set({ edlStrength: Math.max(0.4, Math.min(2.4, v)) }),
   setStats: (fps, latency) =>
     set((s) => {
       const f = s.lastFrame;

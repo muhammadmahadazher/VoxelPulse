@@ -10,6 +10,12 @@ export interface MenuItem {
   run: () => void;
 }
 
+export interface MenuDef {
+  id: string;
+  label: string;
+  items: MenuItem[];
+}
+
 /** Generic right-click context menu (floating overlay chrome). */
 export function ContextMenu({
   x, y, items, onClose,

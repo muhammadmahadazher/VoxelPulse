@@ -1,88 +1,163 @@
-import { Crosshair, Layers as LayersIcon, Radio } from "lucide-react";
+import { useState } from "react";
+import { Radio, ChevronRight, MousePointerClick } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 import { useProjectStore } from "../stores/projectStore";
-import { useStore, OBJECT_VELOCITIES } from "../store";
+import { useStore, OBJECT_VELOCITIES, COLORMAPS, type Colormap } from "../store";
 import { PiP } from "../ui/PiP";
+import { PanelHeader, PropertyRow, Slider, Stepper, Switch, EmptyState, Chip } from "../ui/kit";
 
-function Row({ label, value, mono = true, accent }: { label: string; value: string; mono?: boolean; accent?: string }) {
+function Section({ title, children, defaultOpen = true }: {
+  title: string; children: React.ReactNode; defaultOpen?: boolean;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
   return (
-    <div className="flex items-baseline justify-between border-b border-[var(--vp-divider)] py-1">
-      <span className="text-[10px] uppercase tracking-wider text-[var(--vp-text-3)]">{label}</span>
-      <span className={`text-[11px] ${mono ? "font-[var(--vp-font-mono)]" : ""} ${accent ?? "text-[var(--vp-text-1)]"}`}>{value}</span>
-    </div>
+    <section className="border-b py-1" style={{ borderColor: "var(--vp-divider)" }}>
+      <button onClick={() => setOpen(!open)} className="flex min-h-[28px] w-full items-center gap-1.5 px-3 text-left">
+        <motion.span animate={{ rotate: open ? 90 : 0 }} transition={{ duration: 0.12 }}>
+          <ChevronRight size={12} className="text-[var(--vp-text-3)]" />
+        </motion.span>
+        <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--vp-text-3)]">{title}</span>
+      </button>
+      <AnimatePresence initial={false}>
+        {open && (
+          <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.15 }} className="overflow-hidden">
+            <div className="px-3 pb-2">{children}</div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </section>
   );
 }
 
-function SectionTitle({ icon, title }: { icon: React.ReactNode; title: string }) {
-  return (
-    <div className="mb-1 flex items-center gap-1.5 text-[var(--vp-text-2)]">
-      <span className="text-[var(--vp-accent)]">{icon}</span>
-      <span className="text-[11px] font-semibold">{title}</span>
-    </div>
-  );
-}
-
-/** Contextual inspector: shows only fields relevant to the current selection. */
+/** Contextual inspector — grouped, editable property sections.
+ *  Displays only sections relevant to the current selection. */
 export function InspectorPanel() {
   const selection = useProjectStore((s) => s.selection);
   const layers = useProjectStore((s) => s.layers);
+  const updateLayer = useProjectStore((s) => s.updateLayer);
   const probe = useStore((s) => s.inspectPoint);
   const frame = useStore((s) => s.lastFrame);
+  const t = useStore();
 
   const layer = selection.kind === "layer" ? layers.find((l) => l.id === selection.id) : undefined;
   const track = selection.kind === "track" ? frame?.objects.find((o) => o.id === selection.id) : undefined;
   const vel = selection.kind === "track" ? OBJECT_VELOCITIES[selection.id] : undefined;
 
   return (
-    <div className="flex h-full flex-col overflow-y-auto px-3 py-3">
-      <div className="mb-3 text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--vp-text-3)]">
-        Inspector
+    <div className="flex h-full flex-col">
+      <PanelHeader title="Inspector" />
+
+      <div className="flex-1 overflow-y-auto">
+        {selection.kind === "none" && !probe && (
+          <EmptyState
+            icon={<MousePointerClick size={18} />}
+            title="No selection"
+            hint="Select a layer, feature or point to inspect its properties."
+          />
+        )}
+
+        {layer && (
+          <>
+            <div className="px-3 py-3">
+              <div className="text-[14px] font-semibold text-[var(--vp-text-1)]">{layer.name}</div>
+              <div className="mt-1 flex items-center gap-2">
+                <Chip tone="accent">{layer.type}</Chip>
+                {layer.source && <span className="text-[12px] text-[var(--vp-text-3)]">{layer.source.name}</span>}
+              </div>
+            </div>
+
+            {layer.type === "pointcloud" && (
+              <Section title="Display">
+                <PropertyRow label="Colormap">
+                  <select
+                    value={t.colormap}
+                    onChange={(e) => t.setColormap(e.target.value as Colormap)}
+                    className="vp-raised h-[24px] rounded-[var(--vp-r-sm)] border px-1.5 text-[12px] text-[var(--vp-text-1)] outline-none">
+                    {COLORMAPS.map((c) => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </PropertyRow>
+                <PropertyRow label="Point size">
+                  <Stepper value={t.pointSize} step={0.2} min={0.5} max={6} onChange={t.setPoint}
+                    format={(v) => v.toFixed(1)} />
+                </PropertyRow>
+                <Slider label="Opacity" value={layer.opacity} min={0.1} max={1} step={0.05}
+                  onChange={(v) => updateLayer(layer.id, { opacity: v })}
+                  format={(v) => `${(v * 100) | 0}%`} />
+                <Slider label="Intensity" value={t.intensityMin} min={0} max={0.95} step={0.05}
+                  onChange={t.setIntensity} format={(v) => v.toFixed(2)} />
+              </Section>
+            )}
+
+            <Section title="Rendering">
+              <Switch label="Eye-Dome Lighting" checked={t.showEdl} onChange={() => t.toggle("showEdl")} />
+              {t.showEdl && (
+                <Slider label="Strength" value={t.edlStrength} min={0.4} max={2.4} step={0.1}
+                  onChange={t.setEdlStrength} format={(v) => v.toFixed(1)} />
+              )}
+              <Switch label="Bloom / FX stack" checked={t.showPostFx} onChange={() => t.toggle("showPostFx")} />
+              <Switch label="Ground grid" checked={t.showGround} onChange={() => t.toggle("showGround")} />
+            </Section>
+
+            <Section title="Metadata">
+              <PropertyRow label="Points">
+                <span className="font-[var(--vp-font-mono)] text-[12px] text-[var(--vp-text-2)]">
+                  {layer.pointCount?.toLocaleString() ?? (frame?.n ?? 0).toLocaleString()}
+                </span>
+              </PropertyRow>
+              {layer.bounds && (
+                <PropertyRow label="Extent">
+                  <span className="font-[var(--vp-font-mono)] text-[12px] text-[var(--vp-text-2)]">
+                    {(layer.bounds[3] - layer.bounds[0]).toFixed(0)} × {(layer.bounds[4] - layer.bounds[1]).toFixed(0)} × {(layer.bounds[5] - layer.bounds[2]).toFixed(0)} m
+                  </span>
+                </PropertyRow>
+              )}
+              <PropertyRow label="Locked">
+                <Switch label="" checked={layer.locked} onChange={(v) => updateLayer(layer.id, { locked: v })} />
+              </PropertyRow>
+            </Section>
+          </>
+        )}
+
+        {track && (
+          <>
+            <div className="px-3 py-3">
+              <div className="flex items-center gap-2">
+                <Radio size={14} className="text-[var(--vp-accent)]" />
+                <span className="text-[14px] font-semibold uppercase text-[var(--vp-text-1)]">{track.label}</span>
+              </div>
+              <div className="mt-1.5"><Chip tone="accent">TRK-{String(track.id).padStart(4, "0")}</Chip></div>
+            </div>
+            <Section title="Perception">
+              <PropertyRow label="Class prob"><span className="font-[var(--vp-font-mono)] text-[12px] text-[var(--vp-success)]">{(track.conf * 100).toFixed(1)} %</span></PropertyRow>
+              <PropertyRow label="L × W × H"><span className="font-[var(--vp-font-mono)] text-[12px] text-[var(--vp-text-2)]">{track.box[3].toFixed(1)} × {track.box[4].toFixed(1)} × {track.box[5].toFixed(1)} m</span></PropertyRow>
+              <PropertyRow label="Distance"><span className="font-[var(--vp-font-mono)] text-[12px] text-[var(--vp-warning)]">{Math.hypot(track.box[0], track.box[1]).toFixed(1)} m</span></PropertyRow>
+              <PropertyRow label="Yaw"><span className="font-[var(--vp-font-mono)] text-[12px] text-[var(--vp-text-2)]">{((track.box[6] * 180) / Math.PI).toFixed(0)}°</span></PropertyRow>
+              {vel && (
+                <PropertyRow label="Velocity">
+                  <span className="font-[var(--vp-font-mono)] text-[12px] text-[var(--vp-accent)]">
+                    {vel[0].toFixed(1)}, {vel[1].toFixed(1)} m/s · {Math.hypot(vel[0], vel[1]).toFixed(1)}
+                  </span>
+                </PropertyRow>
+              )}
+            </Section>
+          </>
+        )}
+
+        {probe && (
+          <Section title="Point Probe">
+            <PropertyRow label="X / Y / Z"><span className="font-[var(--vp-font-mono)] text-[12px] text-[var(--vp-text-2)]">{probe.x.toFixed(2)} / {probe.y.toFixed(2)} / {probe.z.toFixed(2)}</span></PropertyRow>
+            <PropertyRow label="Range"><span className="font-[var(--vp-font-mono)] text-[12px] text-[var(--vp-warning)]">{probe.range.toFixed(2)} m</span></PropertyRow>
+            <PropertyRow label="Intensity"><span className="font-[var(--vp-font-mono)] text-[12px] text-[var(--vp-success)]">{Math.round(probe.intensity * 255)} / 255</span></PropertyRow>
+          </Section>
+        )}
       </div>
 
-      {selection.kind === "none" && (
-        <div className="rounded-md border border-dashed border-[var(--vp-border)] px-3 py-5 text-center text-[11px] leading-relaxed text-[var(--vp-text-3)]">
-          Select a layer, a detection box,<br />or hover the point cloud.
-        </div>
-      )}
-
-      {layer && (
-        <section className="mb-4">
-          <SectionTitle icon={<LayersIcon size={12} />} title={layer.name} />
-          <Row label="Type" value={layer.type} />
-          <Row label="Source" value={layer.source ? `${layer.source.kind} · ${layer.source.name}` : "—"} />
-          {layer.pointCount != null && <Row label="Points" value={layer.pointCount.toLocaleString()} />}
-          {layer.bounds && (
-            <Row label="Bounds" value={`${(layer.bounds[3] - layer.bounds[0]).toFixed(0)} × ${(layer.bounds[4] - layer.bounds[1]).toFixed(0)} × ${(layer.bounds[5] - layer.bounds[2]).toFixed(0)} m`} />
-          )}
-          <Row label="Opacity" value={`${(layer.opacity * 100) | 0}%`} />
-          <Row label="Locked" value={layer.locked ? "yes" : "no"} />
-        </section>
-      )}
-
-      {track && (
-        <section className="mb-4">
-          <SectionTitle icon={<Radio size={12} />} title={`Detection · ${track.label}`} />
-          <Row label="Track ID" value={`TRK-${String(track.id).padStart(4, "0")}`} accent="text-[var(--vp-accent)]" />
-          <Row label="Class prob" value={`${(track.conf * 100).toFixed(1)} %`} accent="text-[var(--vp-success)]" />
-          <Row label="L × W × H" value={`${track.box[3].toFixed(1)} × ${track.box[4].toFixed(1)} × ${track.box[5].toFixed(1)} m`} />
-          <Row label="Distance" value={`${Math.hypot(track.box[0], track.box[1]).toFixed(1)} m`} accent="text-[var(--vp-highlight)]" />
-          <Row label="Yaw" value={`${((track.box[6] * 180) / Math.PI).toFixed(0)}°`} />
-          {vel && <Row label="Velocity" value={`${vel[0].toFixed(1)}, ${vel[1].toFixed(1)} m/s`} accent="text-[var(--vp-text-2)]" />}
-        </section>
-      )}
-
-      {probe && (
-        <section className="mb-4">
-          <SectionTitle icon={<Crosshair size={12} />} title="Point Probe" />
-          <Row label="X / Y / Z" value={`${probe.x.toFixed(2)} / ${probe.y.toFixed(2)} / ${probe.z.toFixed(2)}`} />
-          <Row label="Range" value={`${probe.range.toFixed(2)} m`} accent="text-[var(--vp-highlight)]" />
-          <Row label="Intensity" value={`${Math.round(probe.intensity * 255)} / 255`} accent="text-[var(--vp-success)]" />
-        </section>
-      )}
-
-      <section className="mt-auto border-t border-[var(--vp-divider)] pt-3">
-        <SectionTitle icon={<Radio size={12} />} title="Camera 01" />
-        <PiP inline />
-      </section>
+      <div className="shrink-0 border-t" style={{ borderColor: "var(--vp-divider)" }}>
+        <Section title="Camera 01">
+          <PiP inline />
+        </Section>
+      </div>
     </div>
   );
 }
