@@ -37,7 +37,7 @@ export function ContextMenu({
   return (
     <div
       ref={ref}
-      className="vp-overlay vp-focusable fixed z-[80] min-w-[180px] rounded-md border py-1"
+      className="vp-floating vp-focusable fixed z-[80] min-w-[180px] rounded-md border py-1"
       style={{ left: Math.min(x, window.innerWidth - 200), top: Math.min(y, window.innerHeight - items.length * 28 - 16) }}
     >
       {items.map((it) => (

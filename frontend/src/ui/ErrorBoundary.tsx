@@ -10,11 +10,11 @@ export class ErrorBoundary extends Component<Props, State> {
   render() {
     if (this.state.error) {
       return (
-        <div className="glass absolute inset-x-4 top-20 z-10 rounded-xl p-4">
-          <div className="mono text-xs text-red-400">
+        <div className="vp-floating absolute inset-x-4 top-20 z-10 rounded-xl p-4">
+          <div className="font-[var(--vp-font-mono)] text-[12px] text-[var(--vp-error)]">
             3D viewport failed: {this.state.error.message}
           </div>
-          <div className="mt-1 text-[11px] text-slate-400">
+          <div className="mt-1 text-[12px] text-[var(--vp-text-2)]">
             WebGL may be unavailable — telemetry HUD still runs below.
           </div>
         </div>

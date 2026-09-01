@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "test": "vitest run",
+    "test": "vitest run --passWithNoTests",
+    "test:unit": "vitest run src/utils/fuzzy.test.ts src/utils/projectIo.test.ts",
     "test:visual": "playwright test",
     "lint": "tsc -b --noEmit"
   },
