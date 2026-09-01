@@ -1,10 +1,11 @@
 import { useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
+import { Grid as FadeGrid } from "@react-three/drei";
 import * as THREE from "three";
 import { Html } from "@react-three/drei";
 import { useStore } from "../store";
 
-const RING_RADII = [10, 25, 50, 100];
+const RING_RADII = [10, 25, 50];
 
 function ringGeometry(radius: number, segments = 128): THREE.BufferGeometry {
   const pts: number[] = [];
@@ -84,13 +85,17 @@ export function EgoFrame() {
   return (
     <group>
       {showGround && (
-        <gridHelper args={[200, 50, "#2a3348", "#1a2130"]} position={[0, -0.06, 0]} />
+        <FadeGrid
+          args={[240, 240]} cellSize={4} cellThickness={0.6} sectionSize={20}
+          sectionThickness={1.1} cellColor="#1c2333" sectionColor="#2c3a55"
+          fadeDistance={140} fadeStrength={2.2} followCamera={false}
+          position={[0, -0.06, 0]} />
       )}
       {showRadar && (
         <group>
           {rings.map((geo, i) => (
             <lineSegments key={RING_RADII[i]} geometry={geo}>
-              <lineBasicMaterial color="#4d8fe8" transparent opacity={RING_RADII[i] >= 50 ? 0.1 : 0.22}
+              <lineBasicMaterial color="#4d8fe8" transparent opacity={RING_RADII[i] >= 50 ? 0.08 : 0.16}
                 blending={THREE.AdditiveBlending} depthWrite={false} />
             </lineSegments>
           ))}

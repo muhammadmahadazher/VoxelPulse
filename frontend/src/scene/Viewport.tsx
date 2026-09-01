@@ -41,17 +41,35 @@ function PointCloud() {
     []
   );
   const uniforms = useMemo(() => makeColormapUniforms(), []);
-
+  // track real dataset height bounds for normalized elevation coloring
+  const heightTick = useRef(0);
   useFrame(() => {
     const st = useStore.getState();
     const mat = matRef.current, geom = geomRef.current;
-    if (!st.showPoints) { geom.setDrawRange(0, 0); return; }
+    if (!st.showPoints) {
+      geom.setDrawRange(0, 0);
+      st.setRenderedPoints(0);
+      return;
+    }
     const f = st.displayFrame();
     if (!f || !mat || !geom) return;
     const n = Math.min(f.n, MAX_POINTS);
     if (n > 0) {
       buffers.positions.set(f.positions.subarray(0, n * 3));
       buffers.intensity.set(f.intensity.subarray(0, n));
+      // sample Z bounds every ~0.5s (not every frame — no per-frame store churn)
+      if (heightTick.current++ % 15 === 0) {
+        let zMin = Infinity, zMax = -Infinity;
+        for (let i = 0; i < n; i += 4) {
+          const z = f.positions[i * 3 + 2];
+          if (z < zMin) zMin = z;
+          if (z > zMax) zMax = z;
+        }
+        if (Number.isFinite(zMin) && zMax > zMin)
+          useStore.getState().setHeightRange(zMin, zMax);
+      }
+      if (heightTick.current % 15 === 2)
+        useStore.getState().setRenderedPoints(n);
     }
     geom.setDrawRange(0, n);
     (geom.attributes.position as THREE.BufferAttribute).needsUpdate = true;
@@ -63,6 +81,8 @@ function PointCloud() {
     mat.uniforms.intensityMin.value = s.intensityMin;
     (mat.uniforms.roiMin.value as THREE.Vector3).set(s.roi.xMin, s.roi.yMin, s.roi.zMin);
     (mat.uniforms.roiMax.value as THREE.Vector3).set(s.roi.xMax, s.roi.yMax, s.roi.zMax);
+    mat.uniforms.heightMin.value = s.heightRange.min;
+    mat.uniforms.heightMax.value = s.heightRange.max;
   });
 
   const handlePointerMove = (e: ThreeEvent<PointerEvent>) => {
@@ -97,8 +117,8 @@ function PointCloud() {
         fragmentShader={fragmentShader}
         uniforms={uniforms}
         transparent
-        depthWrite={false}
-        blending={THREE.AdditiveBlending}
+        depthWrite={true}
+        blending={THREE.NormalBlending}
       />
     </points>
   );
@@ -156,7 +176,11 @@ function PostFx() {
   return (
     <EffectComposer>
       {edl ? <EyeDomeLighting strength={edlStrength} radius={1.6} /> : <></>}
-      <Bloom intensity={theme === "presentation" ? 0.9 : 0.3} luminanceThreshold={theme === "presentation" ? 0.5 : 0.65} luminanceSmoothing={0.25} mipmapBlur />
+      {theme === "presentation" ? (
+        <Bloom intensity={0.9} luminanceThreshold={0.5} luminanceSmoothing={0.25} mipmapBlur />
+      ) : (
+        <></>
+      )}
       {theme === "presentation" ? (
         <ChromaticAberration offset={caOffset} radialModulation={false} modulationOffset={0} blendFunction={BlendFunction.NORMAL} />
       ) : (
@@ -258,7 +282,8 @@ export function Viewport({ handleRef }: { handleRef: React.MutableRefObject<View
     const controls = controlsRef.current;
     if (!controls) return;
     const cam = controls.object;
-    if (mode === "orbit") { cam.position.set(30, 13, 16); controls.target.set(30, 3, 0); }
+    // hero framing: 3/4 view down the road corridor from behind the ego origin
+    if (mode === "orbit") { cam.position.set(-16, 13, -27); controls.target.set(26, 2.5, 0); }
     if (mode === "top") { cam.position.set(25, 90, 0.01); controls.target.set(25, 0, 0); }
     if (mode === "chase") { cam.position.set(-6, 4, 0); controls.target.set(25, 0, 0); }
     controls.update();
@@ -305,7 +330,7 @@ export function Viewport({ handleRef }: { handleRef: React.MutableRefObject<View
     <div className="absolute inset-0 flex">
       <div className="relative h-full" style={{ width: secondary ? "50%" : "100%" }}>
         <Canvas
-          camera={{ position: [30, 13, 16], fov: 55, near: 0.1, far: 500 }}
+          camera={{ position: [-16, 13, -27], fov: 55, near: 0.1, far: 500 }}
           gl={{ antialias: true, powerPreference: "high-performance", preserveDrawingBuffer: true }}
           onCreated={({ gl }) => gl.setClearColor("#0c0f16")}
         >

@@ -113,7 +113,7 @@ export function LayersPanel({ onZoomTo, onAddData }: {
                         )}
                         {l.source?.kind === "file" && l.pointCount != null && (
                           <span className="font-[var(--vp-font-mono)] text-[10.5px] text-[var(--vp-text-3)]">
-                            {(l.pointCount / 1000).toFixed(0)}k
+                            {l.pointCount >= 1000 ? `${(l.pointCount / 1000).toFixed(0)}k` : l.pointCount}
                           </span>
                         )}
                         {l.locked && <Lock size={12} className="text-[var(--vp-warning)]/70" />}

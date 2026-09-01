@@ -4,6 +4,7 @@ import { defineConfig } from "@playwright/test";
  *  Tolerant thresholds: anti-aliasing / GPU variance must not break CI. */
 export default defineConfig({
   testDir: "./tests",
+  testMatch: "**/*.e2e.ts",
   timeout: 60_000,
   use: {
     baseURL: "http://localhost:5173",

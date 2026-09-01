@@ -43,14 +43,14 @@ vec3 infrared(float t) {
   vec3 d = vec3(1.0, 1.0, 0.92);
   return t < 0.4 ? mix(a, b, t / 0.4) : (t < 0.75 ? mix(b, c, (t - 0.4) / 0.35) : mix(c, d, (t - 0.75) / 0.25));
 }
-// Height / Z-slice: deep blue -> cyan -> lime -> gold
+// Height / Z-slice: perceptual viridis ramp, normalized to dataset bounds
 vec3 heightMap(float t) {
   t = clamp(t, 0.0, 1.0);
-  vec3 a = vec3(0.05, 0.15, 0.45);
-  vec3 b = vec3(0.00, 0.85, 0.95);
-  vec3 c = vec3(0.45, 1.00, 0.20);
-  vec3 d = vec3(1.00, 0.85, 0.15);
-  return t < 0.34 ? mix(a, b, t / 0.34) : (t < 0.67 ? mix(b, c, (t - 0.34) / 0.33) : mix(c, d, (t - 0.67) / 0.33));
+  return clamp(vec3(
+    0.2803 + t*(-1.4625 + t*(7.3286 + t*(-11.5712 + t*6.2114))),
+    0.1449 + t*(2.2959 + t*(-4.7887 + t*(5.8801 + t*-2.2037))),
+    0.4566 + t*(2.0761 + t*(-9.9819 + t*(16.2606 + t*-8.2569)))
+  ), 0.0, 1.0);
 }
 // Semantic classification (approximated from geometry):
 //   ground (z<0.2) = slate green, objects (0.2..2.6) = class ramp, structures = sand
@@ -81,8 +81,8 @@ void main() {
   vWorldPos = position;
   vec4 mv = modelViewMatrix * vec4(position, 1.0);
   float dist = -mv.z;
-  // natural perspective falloff 1/d, clamped to sane sprite sizes
-  gl_PointSize = clamp(pointSize * (160.0 / max(dist, 0.5)), 1.0, 48.0);
+  // natural perspective falloff 1/d, clamped to crisp sample sizes
+  gl_PointSize = clamp(pointSize * (26.0 / max(dist, 0.5)), 1.0, 9.0);
   gl_Position = projectionMatrix * mv;
 }
 `;
@@ -97,6 +97,8 @@ uniform float maxRange;
 uniform float intensityMin;
 uniform vec3 roiMin;
 uniform vec3 roiMax;
+uniform float heightMin;
+uniform float heightMax;
 ${COLORMAP_GLSL}
 void main() {
   if (vIntensity < intensityMin) discard;
@@ -105,7 +107,8 @@ void main() {
   if (vWorldPos.z < roiMin.z || vWorldPos.z > roiMax.z) discard;
 
   float tRange = clamp(vRange / maxRange, 0.0, 1.0);
-  float tHeight = clamp((vHeight + 2.0) / 10.0, 0.0, 1.0);
+  float hSpan = max(heightMax - heightMin, 0.5);
+  float tHeight = clamp((vHeight - heightMin) / hSpan, 0.0, 1.0);
   vec3 c;
   if (colormapMode == 0) c = neon(tRange);
   else if (colormapMode == 1) c = turbo(tRange);
@@ -115,14 +118,13 @@ void main() {
   else if (colormapMode == 5) c = heightMap(tHeight);
   else if (colormapMode == 6) c = classification(vHeight, vIntensity);
   else c = zones(vRange);
-  c *= 1.0 + 0.3 * (1.0 - tRange);
 
-  // anti-aliased soft gaussian disc sprite
+  // crisp anti-aliased sample disc — spatial sample, not a glowing orb
   vec2 uv = gl_PointCoord * 2.0 - 1.0;
   float r2 = dot(uv, uv);
   if (r2 > 1.0) discard;
-  float alpha = exp(-3.5 * r2);
-  gl_FragColor = vec4(c, 0.9 * alpha);
+  float alpha = smoothstep(1.0, 0.45, r2);
+  gl_FragColor = vec4(c, 0.96 * alpha);
 }
 `;
 
@@ -138,5 +140,7 @@ export function makeColormapUniforms() {
     intensityMin: { value: 0.0 },
     roiMin: { value: new THREE.Vector3(-80, -40, -3) },
     roiMax: { value: new THREE.Vector3(80, 40, 40) },
+    heightMin: { value: 0.0 },
+    heightMax: { value: 10.0 },
   } as Record<string, THREE.IUniform>;
 }

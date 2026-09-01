@@ -51,15 +51,15 @@ export function InspectorPanel() {
       <div className="flex-1 overflow-y-auto">
         {selection.kind === "none" && !probe && (
           <EmptyState
-            icon={<MousePointerClick size={18} />}
+            icon={<MousePointerClick size={16} />}
             title="No selection"
-            hint="Select a layer, feature or point to inspect its properties."
+            hint="Select a layer, detection or point to inspect it."
           />
         )}
 
         {layer && (
           <>
-            <div className="px-3 py-3">
+            <div className="px-3 pb-1 pt-2.5">
               <div className="text-[14px] font-semibold text-[var(--vp-text-1)]">{layer.name}</div>
               <div className="mt-1 flex items-center gap-2">
                 <Chip tone="accent">{layer.type}</Chip>
@@ -89,6 +89,21 @@ export function InspectorPanel() {
               </Section>
             )}
 
+            {layer.type === "pointcloud" && (
+              <Section title="Range">
+                <PropertyRow label="Height min">
+                  <span className="font-[var(--vp-font-mono)] text-[12px] text-[var(--vp-text-2)]">
+                    {t.heightRange.min.toFixed(2)} m
+                  </span>
+                </PropertyRow>
+                <PropertyRow label="Height max">
+                  <span className="font-[var(--vp-font-mono)] text-[12px] text-[var(--vp-text-2)]">
+                    {t.heightRange.max.toFixed(2)} m
+                  </span>
+                </PropertyRow>
+              </Section>
+            )}
+
             <Section title="Rendering">
               <Switch label="Eye-Dome Lighting" checked={t.showEdl} onChange={() => t.toggle("showEdl")} />
               {t.showEdl && (
@@ -99,7 +114,7 @@ export function InspectorPanel() {
               <Switch label="Ground grid" checked={t.showGround} onChange={() => t.toggle("showGround")} />
             </Section>
 
-            <Section title="Metadata">
+            <Section title="Data">
               <PropertyRow label="Points">
                 <span className="font-[var(--vp-font-mono)] text-[12px] text-[var(--vp-text-2)]">
                   {layer.pointCount?.toLocaleString() ?? (frame?.n ?? 0).toLocaleString()}
@@ -136,7 +151,7 @@ export function InspectorPanel() {
               {vel && (
                 <PropertyRow label="Velocity">
                   <span className="font-[var(--vp-font-mono)] text-[12px] text-[var(--vp-accent)]">
-                    {vel[0].toFixed(1)}, {vel[1].toFixed(1)} m/s · {Math.hypot(vel[0], vel[1]).toFixed(1)}
+                    {vel[0].toFixed(1)}, {vel[1].toFixed(1)} m/s
                   </span>
                 </PropertyRow>
               )}
@@ -154,10 +169,22 @@ export function InspectorPanel() {
       </div>
 
       <div className="shrink-0 border-t" style={{ borderColor: "var(--vp-divider)" }}>
-        <Section title="Camera 01">
+        <div className="flex items-center justify-between px-3 pb-1.5 pt-2">
+          <SectionTitleInline title="Camera 01" />
+        </div>
+        <div className="px-2.5 pb-2.5">
           <PiP inline />
-        </Section>
+        </div>
       </div>
+    </div>
+  );
+}
+
+function SectionTitleInline({ title }: { title: string }) {
+  return (
+    <div className="flex items-center gap-1.5 text-[var(--vp-text-2)]">
+      <span className="text-[var(--vp-accent)]"><Radio size={12} /></span>
+      <span className="text-[11px] font-semibold">{title}</span>
     </div>
   );
 }

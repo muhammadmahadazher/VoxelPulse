@@ -49,14 +49,14 @@ export function ToolButton({
 
 /* ----------------------------------------------------------- IconButton */
 export function IconButton({
-  icon, onClick, active, disabled, danger, title, size = "md",
+  icon, onClick, active, disabled, danger, title, label, size = "md",
 }: {
   icon: ReactNode; onClick?: () => void; active?: boolean; disabled?: boolean;
-  danger?: boolean; title?: string; size?: "sm" | "md";
+  danger?: boolean; title?: string; label?: string; size?: "sm" | "md";
 }) {
   const dim = size === "sm" ? "var(--vp-ctl-sm)" : "var(--vp-ctl-md)";
   return (
-    <button onClick={onClick} disabled={disabled} title={title}
+    <button onClick={onClick} disabled={disabled} title={title} aria-label={label}
       style={{ width: dim, height: dim }}
       className={`${base} rounded-[var(--vp-r-sm)] disabled:opacity-35 disabled:pointer-events-none
         ${active ? "text-[var(--vp-accent)]" : danger ? "text-[var(--vp-text-3)] hover:text-[var(--vp-error)]" : "text-[var(--vp-text-2)] hover:bg-[var(--vp-hover)] hover:text-[var(--vp-text-1)]"}

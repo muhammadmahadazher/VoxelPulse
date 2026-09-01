@@ -57,13 +57,17 @@ telemetry backend, GitHub Actions CI + Pages deploy. Production build is clean
 
 ## Known technical debt
 
-1. ~~Dual-build-tree workaround~~ **Resolved (Phase 1.5)**: `C:\vp-fe` now
-   holds only `node_modules` + configs; `src` is an NTFS junction to the
-   workspace tree (`mklink /J src <workspace>/frontend/src`), and the mirror
-   `vite.config.ts` sets `resolve.preserveSymlinks` so deps resolve locally.
-   Builds always consume the canonical workspace source. Revisit only if the
-   workspace moves to a local volume (then drop the mirror entirely).
+1. **Local development workaround (not repository architecture)**: `npm install`
+   fails with `EBADF` on the mounted Google Drive workspace. Local Z Code /
+   Windows setups can work around it with an NTFS junction
+   (`C:\vp-fe\src` → `frontend/src`, `resolve.preserveSymlinks` in the local
+   vite config). This is a developer-environment fix only — the canonical
+   source remains `frontend/src`, and CI / normal contributors never touch
+   `C:\vp-fe` (`npm install && npm run dev` in `frontend/` is the supported
+   flow).
 2. `three-stdlib` peer types used for OrbitControls typing (drei dependency).
-3. No unit/component tests yet (Phase 1 adds Vitest + first suites).
+3. Test coverage: Vitest unit suites plus Playwright interaction and
+   visual-regression suites (see `frontend/tests/`); deeper coverage for the
+   Phase 2+ analysis tools.
 4. Bundle ~1.25 MB (gzip ~350 KB) — acceptable now; code-splitting planned
    with GIS modules (Phase 5+).

@@ -4,13 +4,13 @@ import { useProjectStore } from "../stores/projectStore";
 /** Calm, readable status bar: CRS · cursor · selection — data · perf · mode. */
 export function StatusBar() {
   const probe = useStore((s) => s.inspectPoint);
-  const frame = useStore((s) => s.lastFrame);
+  const rendered = useStore((s) => s.renderedPoints);
   const fps = useStore((s) => s.fps);
   const mode = useStore((s) => s.mode);
   const layers = useProjectStore((s) => s.layers);
   const selection = useProjectStore((s) => s.selection);
 
-  const n = frame?.n ?? 0;
+  const n = rendered;
   const cell = "px-3 font-[var(--vp-font-mono)] text-[11.5px] text-[var(--vp-text-3)] whitespace-nowrap";
   const selectionLabel =
     selection.kind === "layer" ? layers.find((l) => l.id === selection.id)?.name ?? "layer" :
@@ -31,7 +31,7 @@ export function StatusBar() {
         )}
       </div>
       <div className="flex items-center">
-        <span className={cell}>{n.toLocaleString()} pts</span>
+        <span className={cell}>{n.toLocaleString()} pts visible</span>
         <span className={cell}>{fps.toFixed(0)} FPS</span>
         <span className={`${cell} ${mode === "live" ? "text-[var(--vp-success)]" : mode === "sim" ? "text-[var(--vp-warning)]" : ""}`}>
           {mode === "live" ? "● live sensor" : mode === "sim" ? "◐ demo scene" : mode}

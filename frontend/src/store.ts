@@ -100,6 +100,10 @@ interface VoxelState {
   scrub: { active: boolean; index: number };
   playSpeed: number; // 0.25 .. 4
   stats: StatSample[];
+  /** Live dataset height bounds for normalized elevation coloring (real data). */
+  heightRange: { min: number; max: number };
+  /** Points actually rendered (after visibility/ROI), for the status bar. */
+  renderedPoints: number;
 
   // pip
   pipMode: PipMode;
@@ -127,6 +131,8 @@ interface VoxelState {
   resetRoi: () => void;
   setScrub: (active: boolean, index: number) => void;
   setPlaySpeed: (s: number) => void;
+  setHeightRange: (min: number, max: number) => void;
+  setRenderedPoints: (n: number) => void;
   setPipMode: (m: PipMode) => void;
   /** Frame the viewport should currently render (live or scrubbed). */
   displayFrame: () => FrameData;
@@ -150,10 +156,10 @@ export const useStore = create<VoxelState>((set, get) => ({
   showRadar: true,
   showPostFx: true,
   showEdl: true,
-  edlStrength: 1.2,
+  edlStrength: 0.9,
   showDensity: false,
   showCropGizmo: false,
-  pointSize: 2.4,
+  pointSize: 3.0,
   colormap: "height",
   intensityMin: 0,
   paused: false,
@@ -169,6 +175,8 @@ export const useStore = create<VoxelState>((set, get) => ({
   scrub: { active: false, index: 0 },
   playSpeed: 1,
   stats: [],
+  heightRange: { min: 0, max: 10 },
+  renderedPoints: 0,
 
   pipMode: "front",
   pipLarge: false,
@@ -215,6 +223,12 @@ export const useStore = create<VoxelState>((set, get) => ({
       paused: active ? true : s.paused,
     })),
   setPlaySpeed: (speed) => set({ playSpeed: Math.max(0.25, Math.min(4, speed)) }),
+  setHeightRange: (min, max) =>
+    set((s) =>
+      Math.abs(s.heightRange.min - min) > 0.25 || Math.abs(s.heightRange.max - max) > 0.25
+        ? { heightRange: { min, max } }
+        : {}),
+  setRenderedPoints: (n) => set((s) => (s.renderedPoints === n ? {} : { renderedPoints: n })),
   setPipMode: (m) => set({ pipMode: m }),
   displayFrame: () => {
     const s = get();

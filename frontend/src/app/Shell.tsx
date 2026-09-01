@@ -55,7 +55,7 @@ export function Shell({
 
   const effectiveLeft = leftOpen && !maximized;
   const effectiveRight = rightOpen && !maximized;
-  const effectiveBottom = bottomOpen && !maximized;
+  const effectiveBottom = bottomOpen; // maximize hides side panels only — the compact dock stays
 
   const divider = (which: "left" | "right" | "bottom", className: string) => (
     <div onPointerDown={start(which)} className={`group absolute z-10 ${className}`}>

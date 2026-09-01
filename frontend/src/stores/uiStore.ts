@@ -4,6 +4,7 @@ import { create } from "zustand";
 
 export type ThemeMode = "pro" | "presentation";
 export type ColorMode = "dark" | "light";
+export type TimelineMode = "compact" | "expanded";
 
 export interface UiLayout {
   leftWidth: number;
@@ -22,6 +23,7 @@ interface UiState {
   theme: ThemeMode;
   colorMode: ColorMode;
   maximized: boolean;
+  timelineMode: TimelineMode;
   bottomTab: "timeline" | "console";
   menuOpen: string | null;
   setPanel: (k: keyof UiPanels, open: boolean) => void;
@@ -33,25 +35,29 @@ interface UiState {
   toggleColorMode: () => void;
   setMaximized: (v: boolean) => void;
   toggleMaximized: () => void;
+  setTimelineMode: (m: TimelineMode) => void;
   setBottomTab: (t: "timeline" | "console") => void;
   setMenuOpen: (m: string | null) => void;
 }
 
 const LS_KEY = "voxelpulse.ui.v1";
 const DEFAULTS = {
-  layout: { leftWidth: 264, rightWidth: 288, bottomHeight: 176 } as UiLayout,
+  layout: { leftWidth: 240, rightWidth: 272, bottomHeight: 128 } as UiLayout,
   panels: { left: true, right: true, bottom: true } as UiPanels,
 };
 
-function load(): { layout: UiLayout; panels: UiPanels } {
+function load(): { layout: UiLayout; panels: UiPanels; timelineMode?: TimelineMode } {
   try {
     if (typeof localStorage === "undefined") throw new Error("no storage");
     const raw = localStorage.getItem(LS_KEY);
     if (raw) {
-      const p = JSON.parse(raw) as Partial<{ layout: UiLayout; panels: UiPanels }>;
+      const p = JSON.parse(raw) as Partial<{
+        layout: UiLayout; panels: UiPanels; timelineMode: TimelineMode;
+      }>;
       return {
         layout: { ...DEFAULTS.layout, ...p.layout },
         panels: { ...DEFAULTS.panels, ...p.panels },
+        timelineMode: p.timelineMode,
       };
     }
   } catch { /* corrupted prefs fall back to defaults */ }
@@ -60,7 +66,9 @@ function load(): { layout: UiLayout; panels: UiPanels } {
 
 function persist(s: UiState) {
   if (typeof localStorage === "undefined") return; // tests / SSR
-  localStorage.setItem(LS_KEY, JSON.stringify({ layout: s.layout, panels: s.panels }));
+  localStorage.setItem(LS_KEY, JSON.stringify({
+    layout: s.layout, panels: s.panels, timelineMode: s.timelineMode,
+  }));
 }
 
 const initial = load();
@@ -71,6 +79,7 @@ export const useUiStore = create<UiState>((set, get) => ({
   theme: "pro",
   colorMode: "dark",
   maximized: false,
+  timelineMode: initial.timelineMode ?? "compact",
   bottomTab: "timeline",
   menuOpen: null,
 
@@ -92,6 +101,7 @@ export const useUiStore = create<UiState>((set, get) => ({
   toggleColorMode: () => set((s) => ({ colorMode: s.colorMode === "dark" ? "light" : "dark" })),
   setMaximized: (maximized) => set({ maximized }),
   toggleMaximized: () => set((s) => ({ maximized: !s.maximized })),
+  setTimelineMode: (timelineMode) => set({ timelineMode }),
   setBottomTab: (bottomTab) => set({ bottomTab }),
   setMenuOpen: (menuOpen) => set({ menuOpen }),
 }));

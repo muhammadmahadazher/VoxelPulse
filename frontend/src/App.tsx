@@ -46,6 +46,8 @@ export default function App() {
   const handleRef = useRef<ViewportHandle>(null);
   const mode = useStore((s) => s.mode);
   const projectOpen = useProjectStore((s) => s.open);
+  const addInputRef = useRef<HTMLInputElement>(null);
+  const openInputRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
   const [notice, setNotice] = useState<{ text: string; detail?: string } | null>(null);
 
@@ -63,13 +65,6 @@ export default function App() {
     // deep link for testing / sharing: ?project=1 opens an empty project
     if (new URLSearchParams(location.search).get("project") === "1") {
       useProjectStore.getState().newProject();
-    }
-  }, []);
-
-  // responsive density: on first visit at small sizes, collapse the bottom dock
-  useEffect(() => {
-    if (!localStorage.getItem("voxelpulse.ui.v1") && window.innerWidth < 1366) {
-      useUiStore.getState().setPanel("bottom", false);
     }
   }, []);
 
@@ -108,36 +103,11 @@ export default function App() {
   };
 
   const openProject = () => {
-    const input = document.createElement("input");
-    input.type = "file";
-    input.accept = ".vxp,application/json";
-    input.onchange = async () => {
-      const file = input.files?.[0];
-      if (!file) return;
-      try {
-        const doc = deserializeProject(JSON.parse(await file.text()));
-        const restored = applyProject(doc);
-        if (restored.viewLayout === "split" || restored.viewLayout === "fusion")
-          useStore.getState().setViewLayout(restored.viewLayout);
-        if (restored.camera) handleRef.current?.restoreCamera(restored.camera);
-        useProjectStore.getState().markSaved(file.name);
-        appendConsole(`project opened — ${file.name} (${doc.layers.length} layers)`);
-      } catch (e) {
-        setNotice({ text: `Could not open ${file.name}`, detail: (e as Error).message });
-      }
-    };
-    input.click();
+    openInputRef.current?.click();
   };
 
   const addData = () => {
-    const input = document.createElement("input");
-    input.type = "file";
-    input.accept = ".las,.ply,.pcd,.xyz,.txt,.pts";
-    input.onchange = () => {
-      const file = input.files?.[0];
-      if (file) void importFile(file);
-    };
-    input.click();
+    addInputRef.current?.click();
   };
 
   const importFile = async (file: File) => {
@@ -314,6 +284,28 @@ export default function App() {
     else if (a.kind === "example" && a.example) startExample(a.example);
   };
 
+  const onAddInput = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (file) await importFile(file);
+  };
+  const onOpenInput = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    try {
+      const doc = deserializeProject(JSON.parse(await file.text()));
+      const restored = applyProject(doc);
+      if (restored.viewLayout === "split" || restored.viewLayout === "fusion")
+        useStore.getState().setViewLayout(restored.viewLayout);
+      if (restored.camera) handleRef.current?.restoreCamera(restored.camera);
+      useProjectStore.getState().markSaved(file.name);
+      appendConsole(`project opened — ${file.name} (${doc.layers.length} layers)`);
+    } catch (err) {
+      setNotice({ text: `Could not open ${file.name}`, detail: (err as Error).message });
+    }
+  };
+
   return (
     <Shell
       header={<AppHeader menus={menus} onAddData={addData} onMaximize={() => useUiStore.getState().toggleMaximized()} />}
@@ -330,6 +322,12 @@ export default function App() {
       onResize={ui.setLayout}
       canvasOverlay={projectOpen ? <ProbeChip /> : null}
     >
+      {/* persistent, accessible file inputs (hidden chrome) */}
+      <input ref={addInputRef} type="file" id="vp-add-data" aria-hidden
+        accept=".las,.ply,.pcd,.xyz,.txt,.pts" className="hidden" onChange={onAddInput} />
+      <input ref={openInputRef} type="file" id="vp-open-project" aria-hidden
+        accept=".vxp,application/json" className="hidden" onChange={onOpenInput} />
+
       <ErrorBoundary>
         <Viewport handleRef={handleRef} />
       </ErrorBoundary>
