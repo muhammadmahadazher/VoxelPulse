@@ -57,10 +57,12 @@ telemetry backend, GitHub Actions CI + Pages deploy. Production build is clean
 
 ## Known technical debt
 
-1. Dual-build-tree workaround: the workspace lives on a Google Drive mount
-   where `npm install` fails (`EBADF`); builds run from a byte-identical
-   mirror on `C:\`. Verified identical before every push; remove when the
-   workspace moves to a local volume.
+1. ~~Dual-build-tree workaround~~ **Resolved (Phase 1.5)**: `C:\vp-fe` now
+   holds only `node_modules` + configs; `src` is an NTFS junction to the
+   workspace tree (`mklink /J src <workspace>/frontend/src`), and the mirror
+   `vite.config.ts` sets `resolve.preserveSymlinks` so deps resolve locally.
+   Builds always consume the canonical workspace source. Revisit only if the
+   workspace moves to a local volume (then drop the mirror entirely).
 2. `three-stdlib` peer types used for OrbitControls typing (drei dependency).
 3. No unit/component tests yet (Phase 1 adds Vitest + first suites).
 4. Bundle ~1.25 MB (gzip ~350 KB) — acceptable now; code-splitting planned
