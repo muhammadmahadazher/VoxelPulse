@@ -71,15 +71,20 @@ uvicorn app.main:app --reload --port 8000
 
 ## Supported formats (honest status)
 
-| Capability | Browser | Local backend | Status |
+Import runs through the spatial data engine (Source → FormatAdapter → Dataset
+→ Layer → Renderer); each row reflects the capability matrix in
+`frontend/src/core/data/formats/capabilities.ts` (§88).
+
+| Format | Import (browser) | Metadata | Notes / limitations |
 |---|---|---|---|
-| LAS (binary) | ✓ import | ✓ import | Stable |
-| PLY (ascii/binary xyz) | ✓ | ✓ | Stable |
-| PCD (ascii/binary) | ✓ | ✓ | Stable |
-| XYZ / CSV points | ✓ | — | Stable |
-| LAZ | — | planned | Roadmap (Phase 2 adapters) |
-| COPC / 3D Tiles / GeoTIFF | — | — | Roadmap (Phases 5–6) |
-| Export: PLY / PCD / 4K PNG / .vxp | ✓ | — | Stable |
+| LAS 1.0–1.4 (formats 0–5) | ✓ adapter | header partial-read: version, point format, count, scale/offset, bounds | No LAZ (compressed). Whole-file decode, ≤ 400k pts |
+| PLY ascii / binary LE / BE | ✓ adapter | header-driven vertex schema, vertex count | Point vertices with x/y/z; mesh-only schemas rejected |
+| PCD ascii / binary | ✓ adapter | FIELDS/SIZE/TYPE/COUNT layout | `binary_compressed` rejected with re-export hint |
+| XYZ / TXT / PTS | ✓ adapter | point count, bounds, intensity column | Conservative: must parse as a coordinate table |
+| VPF1 live stream | ✓ temporal | session stats | Separate temporal path — not forced through file adapters |
+| LAZ | — | — | Roadmap (massive-data phase, with decompression limits) |
+| COPC / GeoTIFF / vector | — | — | Roadmap (GIS phases) — architecture prepared, nothing claimed |
+| Export: PLY / PCD / PNG / .vxp | ✓ | — | Stable |
 
 ## Architecture
 
@@ -87,19 +92,30 @@ Phase 0 audit, design research, architecture and ADRs live in
 [`docs/`](docs/): [audit](docs/audit-v4.md) · [design research](docs/design-research.md) ·
 [architecture](docs/architecture-v4.md) · ADRs ([renderer](docs/adr/0001-renderer-abstraction.md),
 [layer model](docs/adr/0002-layer-dataset-model.md), [state](docs/adr/0003-scoped-state-stores.md),
-[.vxp format](docs/adr/0004-project-format-vxp.md)).
+[.vxp format](docs/adr/0004-project-format-vxp.md),
+[spatial data engine](docs/adr/0005-spatial-data-engine.md),
+[worker/resource lifecycle](docs/adr/0006-worker-resource-lifecycle.md)).
+
+**Spatial data engine** (`frontend/src/core/data/`): typed sources with
+capabilities and HTTP byte-range support → format registry with layered
+content detection → adapters that own all format knowledge → dataset
+descriptors (the only thing `.vxp` serializes) → bounded worker pool with
+priority/cancellation/transferables → resource manager with explicit
+lifecycle and memory budgets → renderer-facing chunk contract. Adding a
+format is one parser + one adapter + fixtures/tests — see
+[docs/development/format-adapters.md](docs/development/format-adapters.md).
 
 ```text
-File / Stream / Demo ─▶ FormatAdapter ─▶ Layer (project store)
-                                             │
-        menu · palette · panels (React) ─▶ scoped stores ─▶ Render engine
-                                             │                (Three.js/R3F adapter)
-        telemetry store ◀─ VPF1 ws / WebWorker sim ──▶ GPU buffers (EDL, splats)
+Source ─▶ FormatAdapter ─▶ Dataset ─▶ Chunk/Resource ─▶ Worker Pool ─▶ Render Resource ─▶ Renderer
+  │                                                                          ▲
+  └── .vxp stores dataset descriptors only ──▶ Layer (project store) ────────┘
+        menu · palette · panels (React) ─▶ scoped stores ─▶ Three.js/R3F (EDL, reused GPU buffers)
+        telemetry: VPF1 ws / WebWorker sim ──▶ temporal frames ────────────┘
 ```
 
 ## Roadmap
 
-- **v4 Spatial Workstation** — ✅ shell, layers, projects, palette · ⏳ dataset/adapter architecture, worker pool, cross-sections
+- **v4 Spatial Workstation** — ✅ shell, layers, projects, palette · ✅ spatial data engine (sources, adapters, worker pool, resource budgets) · ⏳ cross-sections, measurement polish
 - **v5 GIS Foundation** — CRS (proj), vector layers, attribute table, map workspace
 - **v6 Massive Data** — chunked LOD streaming, LAZ/COPC, tens-of-millions+ points
 - **v7 Analysis Platform** — ground classification, DEM, clustering, jobs backend

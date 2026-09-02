@@ -7,8 +7,9 @@ import { datasetManager } from "./datasetManager";
 import { jobStore } from "./jobs/jobStore";
 import { decodeChunkData } from "./workers/client";
 import { LocalFileSource } from "./source/localFile";
-import { isCancelledError } from "./errors";
+import { isCancelledError, toVpDataError, VpDataError } from "./errors";
 import type { DataSource } from "./source/types";
+import type { DataFormat } from "./types";
 import type { DecodedChunk } from "./formats/types";
 import type { DatasetDescriptor } from "./types";
 
@@ -23,6 +24,17 @@ export interface ImportHooks {
   frameBounds: (bounds: { min: [number, number, number]; max: [number, number, number] }) => void;
   /** Non-blocking user-facing failure notice (§33, §90). */
   notifyError: (title: string, message: string, detail?: string) => void;
+}
+
+const running = new Map<string, AbortController>();
+
+/** §116–117: current decode paths are whole-file — refuse dangerous
+ *  allocations up front with an honest message instead of crashing the tab. */
+const WHOLE_FILE_LIMIT = 800 * 1024 * 1024; // 800 MB
+
+function perfMark(name: string): void {
+  // §97: real Performance marks make later optimization evidence-based.
+  try { performance.mark(name); } catch { /* non-browser context */ }
 }
 
 export const importService = {
@@ -40,17 +52,28 @@ export const importService = {
     const ctrl = new AbortController();
     running.set(job.id, ctrl);
     try {
+      const size = await source.size().catch(() => undefined);
+      if (size !== undefined && size > WHOLE_FILE_LIMIT) {
+        throw new VpDataError("out-of-memory", "This dataset is too large for the current browser loader.", {
+          detail: `${(size / 1e6).toFixed(0)} MB — large-file streaming support is planned for the massive-data phase.`,
+        });
+      }
+
+      perfMark("vp:import:probe:start");
       jobStore.setStatus(job.id, "probing", { message: "detecting format" });
       const { dataset } = await datasetManager.openSource(source, {
         signal: ctrl.signal,
-        decodeChunk: (format, buffer, signal) =>
+        decodeChunk: (format: DataFormat, buffer: ArrayBuffer, signal?: AbortSignal) =>
           decodeChunkData(format, buffer, { signal, priority: "interactive" }),
       });
+      perfMark("vp:import:probe:end");
 
       jobStore.setStatus(job.id, "reading", {
         message: `reading ${dataset.info.metadata.pointCount ?? ""} points`.trim(),
       });
+      perfMark("vp:import:decode:start");
       const chunk = await datasetManager.readChunk(dataset.id, 0, ctrl.signal);
+      perfMark("vp:import:decode:end");
       if (jobStore.get(job.id)?.status === "cancelled") return; // late finish — drop (§64)
 
       jobStore.setStatus(job.id, "creating-layer", { message: "creating layer" });
@@ -70,9 +93,9 @@ export const importService = {
         jobStore.setStatus(job.id, "cancelled");
         return;
       }
-      const err = e as { code?: string; message: string; detail?: string };
+      const err = toVpDataError(e, "decode-failed", `Could not import ${label}`);
       jobStore.setStatus(job.id, "failed", {
-        error: { code: err.code ?? "decode-failed", message: err.message, detail: err.detail },
+        error: { code: err.code, message: err.message, detail: err.detail },
       });
       hooks.notifyError(`Could not open ${label}`, err.message, err.detail);
     } finally {
@@ -80,8 +103,6 @@ export const importService = {
     }
   },
 };
-
-const running = new Map<string, AbortController>();
 
 /** Cancel an in-flight import (§31): signal propagates source→adapter→worker. */
 export function cancelImport(jobId: string): boolean {

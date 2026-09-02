@@ -110,7 +110,19 @@ export class WorkerPool {
       a.job.id.localeCompare(b.job.id));
     while (this.queue.length) {
       const worker = this.takeWorker();
-      if (!worker) return;
+      if (!worker) {
+        // No worker available at all (spawn keeps failing) — fail queued jobs
+        // instead of leaving them pending forever.
+        if (this.workerCount === 0 && this.busy.size === 0) {
+          const stuck = this.queue.splice(0);
+          for (const waiter of stuck) {
+            this.fail(waiter, new VpDataError("decode-failed", "Worker pool could not start a worker", {
+              detail: "decoding will fall back to the main thread",
+            }));
+          }
+        }
+        return;
+      }
       const waiter = this.queue.shift()!;
       this.busy.set(worker, waiter);
       try {

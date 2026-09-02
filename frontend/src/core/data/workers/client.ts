@@ -23,6 +23,10 @@ let poolBroken = false;
 
 function getPool(): WorkerPool | null {
   if (poolBroken) return null;
+  if (typeof Worker === "undefined") {
+    poolBroken = true; // SSR/test environment — decode in-place (§27 fallback)
+    return null;
+  }
   if (!pool) {
     try {
       pool = new WorkerPool({ spawn: defaultSpawn });

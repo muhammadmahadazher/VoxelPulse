@@ -15,6 +15,7 @@ import { connectStream, setStreamPaused, loadStaticFrame, setSimScenario } from 
 import { exportScreenshot, exportPly, exportPcd } from "./utils/exporters";
 import { chunkToFrame } from "./utils/frameBridge";
 import { importService, type ImportHooks } from "./core/data/importService";
+import { datasetManager } from "./core/data/datasetManager";
 import { LocalFileSource } from "./core/data/source/localFile";
 import {
   serializeProject, deserializeProject, downloadProject, saveAutosave, applyProject,
@@ -168,6 +169,25 @@ export default function App() {
       if (det && det.visible !== t.showBoxes) useStore.setState({ showBoxes: det.visible });
       const ref = byType("reference");
       if (ref && ref.visible !== t.showRadar) useStore.setState({ showRadar: ref.visible });
+    });
+  }, []);
+
+  // ---- dataset reference lifecycle (§81–82) -------------------------------
+  // Removing the last layer that references a dataset releases it; the
+  // manager disposes it and its resources when the ref count hits zero.
+  const prevLayers = useRef(useProjectStore.getState().layers);
+  useEffect(() => {
+    return useProjectStore.subscribe((s) => {
+      const removed = prevLayers.current.filter((l) => !s.layers.some((n) => n.id === l.id));
+      prevLayers.current = s.layers;
+      for (const l of removed) {
+        if (!l.datasetId) continue;
+        const stillReferenced = s.layers.some((n) => n.datasetId === l.datasetId);
+        if (!stillReferenced) {
+          datasetManager.releaseRef(l.datasetId);
+          appendConsole(`dataset ${l.datasetId} released`);
+        }
+      }
     });
   }, []);
 

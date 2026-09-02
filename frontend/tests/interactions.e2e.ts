@@ -142,6 +142,58 @@ test("tiny file import via Add Data renders a new layer", async ({ page }) => {
   ).toBeVisible(); // inspector metadata
 });
 
+test("LAS import populates dataset metadata in the inspector (Phase 2)", async ({ page }) => {
+  await openWorkspace(page);
+  await page.locator("#vp-add-data").setInputFiles("tests/fixtures/tiny.las");
+  const layers = page.getByRole("complementary", { name: "Layers" });
+  await expect(layers.getByText("tiny.las")).toBeVisible({ timeout: 15000 });
+  await layers.getByText("tiny.las").click();
+  const inspector = page.getByRole("complementary", { name: "Inspector" });
+  await expect(inspector.getByText("las", { exact: true })).toBeVisible(); // format row
+  await expect(inspector.getByText("40", { exact: true })).toBeVisible(); // dataset pointCount
+  await expect(inspector.getByText("Fields")).toBeVisible(); // field schema from adapter
+});
+
+test("large import keeps the UI responsive (worker decode, §55)", async ({ page }) => {
+  await openWorkspace(page);
+  // ~400k-point XYZ generated in-test — no giant fixture committed (§56)
+  const lines: string[] = [];
+  for (let i = 0; i < 400_000; i++) {
+    lines.push(`${(i % 97) * 0.5} ${(i % 53) * 0.25} ${(i % 31) * 0.1} ${((i % 100) / 100).toFixed(3)}`);
+  }
+  await page.evaluate(() => {
+    const w = window as unknown as { __vpRafGapMs?: number };
+    w.__vpRafGapMs = 0;
+    let last = performance.now();
+    const tick = (t: number) => {
+      w.__vpRafGapMs = Math.max(w.__vpRafGapMs ?? 0, t - last);
+      last = t;
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  });
+  await page.locator("#vp-add-data").setInputFiles({
+    name: "big.xyz", mimeType: "text/plain", buffer: Buffer.from(lines.join("\n")),
+  });
+  const layers = page.getByRole("complementary", { name: "Layers" });
+  await expect(layers.getByText("big.xyz")).toBeVisible({ timeout: 30000 });
+  await expect(layers.getByText("400k")).toBeVisible();
+  const gap = await page.evaluate(() => (window as unknown as { __vpRafGapMs: number }).__vpRafGapMs);
+  expect(gap).toBeLessThan(2000); // no multi-second main-thread freeze
+});
+
+test("repeated import/remove cycles stay clean (§62)", async ({ page }) => {
+  await openWorkspace(page);
+  const layers = page.getByRole("complementary", { name: "Layers" });
+  for (let i = 0; i < 5; i++) {
+    await page.locator("#vp-add-data").setInputFiles("tests/fixtures/tiny.pcd");
+    await expect(layers.getByText("tiny.pcd").first()).toBeVisible({ timeout: 15000 });
+    await layers.getByText("tiny.pcd").first().click({ button: "right" });
+    await page.getByRole("button", { name: "Remove Layer" }).click();
+    await expect(layers.getByText("tiny.pcd")).toHaveCount(0, { timeout: 10000 });
+  }
+});
+
 test("detection selection populates inspector", async ({ page }) => {
   await openWorkspace(page);
   await page.keyboard.press("Space"); // pause the stream for a stable target
