@@ -6,6 +6,7 @@ export default defineConfig({
   testDir: "./tests",
   testMatch: "**/*.e2e.ts",
   timeout: 60_000,
+  snapshotPathTemplate: "{testDir}/visual-baselines/{arg}{ext}",
   use: {
     baseURL: "http://localhost:5173",
     viewport: { width: 1280, height: 720 },
