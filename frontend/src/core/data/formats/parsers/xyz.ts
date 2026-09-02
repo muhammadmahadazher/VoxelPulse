@@ -18,8 +18,8 @@ const INITIAL_CAPACITY = 8_192;
 
 export function parseXyz(text: string, opts?: { maxPoints?: number }): ParsedPoints {
   const maxPoints = Math.min(opts?.maxPoints ?? MAX_XYZ_POINTS, MAX_XYZ_POINTS);
-  let positions = new Float32Array(INITIAL_CAPACITY * 3);
-  let intensity = new Float32Array(INITIAL_CAPACITY);
+  let positions: Float32Array = new Float32Array(INITIAL_CAPACITY * 3);
+  let intensity: Float32Array = new Float32Array(INITIAL_CAPACITY);
   let n = 0;
   let linesWithCoords = 0;
   let linesTotal = 0;

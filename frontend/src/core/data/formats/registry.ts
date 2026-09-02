@@ -93,3 +93,6 @@ export class FormatRegistry {
 function descriptorName(source: DataSource): string {
   return source.descriptor().name ?? source.label;
 }
+
+/** Application-wide registry instance (adapters register in formats/index.ts). */
+export const formatRegistry = new FormatRegistry();
