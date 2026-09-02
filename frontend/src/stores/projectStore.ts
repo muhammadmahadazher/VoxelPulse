@@ -13,13 +13,27 @@ export interface Layer {
   locked: boolean;
   opacity: number; // 0..1
   source: { kind: "demo" | "stream" | "file"; name: string } | null;
+  /** Reference into the project dataset table (§35). Synthetic/reference
+   *  layers (demo, detections, camera, reference frame) have none. */
+  datasetId?: string;
   pointCount?: number;
   bounds?: [number, number, number, number, number, number]; // xmin ymin zmin xmax ymax zmax
 }
 
+/** Persistent dataset reference in project state (§35, §78) — descriptors
+ *  only, never buffers. */
+export interface ProjectDatasetRef {
+  id: string;
+  name: string;
+  format: string;
+  kind: string;
+  source: Record<string, unknown>; // SourceDescriptor
+  metadata: Record<string, unknown>; // serializable subset
+}
+
 export interface ProjectMeta {
   name: string;
-  formatVersion: 1;
+  formatVersion: 2;
   created: string;
 }
 
@@ -33,6 +47,7 @@ interface ProjectState {
   open: boolean;
   meta: ProjectMeta;
   layers: Layer[];
+  datasets: ProjectDatasetRef[];
   selection: Selection;
   dirty: boolean;
   savedRef: string | null; // last Save As filename
@@ -44,6 +59,8 @@ interface ProjectState {
   markSaved: (name: string | null) => void;
   addLayer: (l: Layer) => void;
   removeLayer: (id: string) => void;
+  addDataset: (d: ProjectDatasetRef) => void;
+  removeDataset: (id: string) => void;
   updateLayer: (id: string, patch: Partial<Layer>) => void;
   reorderLayer: (id: string, dir: -1 | 1) => void;
   select: (s: Selection) => void;
@@ -63,13 +80,14 @@ function saveRecents(r: string[]) {
 }
 
 export const newProjectMeta = (name = "Untitled Project"): ProjectMeta => ({
-  name, formatVersion: 1, created: new Date().toISOString(),
+  name, formatVersion: 2, created: new Date().toISOString(),
 });
 
 export const useProjectStore = create<ProjectState>((set, get) => ({
   open: false,
   meta: newProjectMeta(),
   layers: [],
+  datasets: [],
   selection: { kind: "none" },
   dirty: false,
   savedRef: null,
@@ -77,10 +95,10 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   autosaveRef: null,
 
   newProject: () =>
-    set({ open: true, meta: newProjectMeta(), layers: [], selection: { kind: "none" },
+    set({ open: true, meta: newProjectMeta(), layers: [], datasets: [], selection: { kind: "none" },
           dirty: false, savedRef: null, autosaveRef: null }),
   closeProject: () =>
-    set({ open: false, layers: [], selection: { kind: "none" }, dirty: false, savedRef: null }),
+    set({ open: false, layers: [], datasets: [], selection: { kind: "none" }, dirty: false, savedRef: null }),
   markSaved: (name) => {
     const recents = name ? [name, ...get().recents.filter((r) => r !== name)].slice(0, 8) : get().recents;
     saveRecents(recents);
@@ -88,6 +106,10 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   },
   addLayer: (l) =>
     set((s) => ({ layers: [...s.layers, l], dirty: true, selection: { kind: "layer", id: l.id } })),
+  addDataset: (d) =>
+    set((s) => ({ datasets: [...s.datasets.filter((x) => x.id !== d.id), d], dirty: true })),
+  removeDataset: (id) =>
+    set((s) => ({ datasets: s.datasets.filter((d) => d.id !== id) })),
   removeLayer: (id) =>
     set((s) => ({
       layers: s.layers.filter((l) => l.id !== id),

@@ -1,15 +1,18 @@
-/** `.vxp` project file serialization (ADR-0004): versioned JSON,
- *  references-only — never embeds point data. */
+/** `.vxp` project file serialization (ADR-0004, extended in Phase 2 §76–78):
+ *  versioned JSON, references-only — never embeds point data. v2 adds the
+ *  project dataset table; v1 files migrate losslessly (layers keep their
+ *  inline metadata, synthetic layers simply have no datasetId). */
 import {
   useProjectStore, newProjectMeta,
-  type Layer, type ProjectMeta,
+  type Layer, type ProjectDatasetRef, type ProjectMeta,
 } from "../stores/projectStore";
 import { useUiStore } from "../stores/uiStore";
 
 export interface VxpCamera { position: [number, number, number]; target: [number, number, number] }
 export interface VxpProject {
-  formatVersion: 1;
+  formatVersion: 2;
   meta: ProjectMeta;
+  datasets: ProjectDatasetRef[];
   layers: Layer[];
   layout: { left: number; right: number; bottom: number };
   workspace: { type: "scene"; viewLayout: string; camera: VxpCamera | null };
@@ -19,22 +22,26 @@ export function serializeProject(camera: VxpCamera | null, viewLayout: string): 
   const p = useProjectStore.getState();
   const ui = useUiStore.getState();
   return {
-    formatVersion: 1,
+    formatVersion: 2,
     meta: p.meta,
+    datasets: p.datasets.map((d) => ({ ...d })),
     layers: p.layers.map((l) => ({ ...l })),
     layout: { left: ui.layout.leftWidth, right: ui.layout.rightWidth, bottom: ui.layout.bottomHeight },
     workspace: { type: "scene", viewLayout, camera },
   };
 }
 
+/** Accept v1 and v2 documents (§76, §77): v1 projects migrate by gaining an
+ *  empty dataset table — inline layer metadata keeps everything usable. */
 export function deserializeProject(doc: unknown): VxpProject {
-  const raw = doc as Partial<VxpProject>;
-  if (!raw || raw.formatVersion !== 1 || !Array.isArray(raw.layers)) {
-    throw new Error("not a valid VoxelPulse project (expected formatVersion 1)");
+  const raw = doc as Partial<Omit<VxpProject, "formatVersion">> & { formatVersion?: number };
+  if (!raw || !Array.isArray(raw.layers) || (raw.formatVersion !== 1 && raw.formatVersion !== 2)) {
+    throw new Error("not a valid VoxelPulse project (expected formatVersion 1 or 2)");
   }
   return {
-    formatVersion: 1,
-    meta: { ...newProjectMeta(), ...raw.meta, formatVersion: 1 },
+    formatVersion: 2,
+    meta: { ...newProjectMeta(), ...raw.meta, formatVersion: 2 },
+    datasets: (Array.isArray(raw.datasets) ? raw.datasets : []) as ProjectDatasetRef[],
     layers: (raw.layers as Layer[]).filter((l) => typeof l?.id === "string"),
     layout: { left: 264, right: 288, bottom: 176, ...raw.layout },
     workspace: {
@@ -71,8 +78,8 @@ export function loadAutosave(): VxpProject | null {
 export function applyProject(doc: VxpProject): { camera: VxpCamera | null; viewLayout: string } {
   const p = useProjectStore.getState();
   useProjectStore.setState({
-    open: true, meta: doc.meta, layers: doc.layers, dirty: false,
-    selection: { kind: "none" }, savedRef: doc.meta.name,
+    open: true, meta: doc.meta, layers: doc.layers, datasets: doc.datasets,
+    dirty: false, selection: { kind: "none" }, savedRef: doc.meta.name,
   });
   useUiStore.getState().setLayout({
     leftWidth: doc.layout.left, rightWidth: doc.layout.right, bottomHeight: doc.layout.bottom,

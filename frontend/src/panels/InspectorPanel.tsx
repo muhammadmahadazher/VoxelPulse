@@ -3,6 +3,7 @@ import { Radio, ChevronRight, MousePointerClick } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useProjectStore } from "../stores/projectStore";
 import { useStore, OBJECT_VELOCITIES, COLORMAPS, type Colormap } from "../store";
+import { datasetManager } from "../core/data/datasetManager";
 import { PiP } from "../ui/PiP";
 import { PanelHeader, PropertyRow, Slider, Stepper, Switch, EmptyState, Chip } from "../ui/kit";
 
@@ -41,6 +42,14 @@ export function InspectorPanel() {
   const t = useStore();
 
   const layer = selection.kind === "layer" ? layers.find((l) => l.id === selection.id) : undefined;
+  const dataset = layer?.datasetId ? datasetManager.descriptor(layer.datasetId) : undefined;
+  const sourceLabel = (() => {
+    const src = dataset?.source as { kind?: string; name?: string; url?: string } | undefined;
+    if (!src) return layer?.source?.name ?? "";
+    return src.name ?? src.url ?? src.kind ?? "";
+  })();
+  const datasetFields = (dataset?.metadata.fields ?? [])
+    .map((f) => (f.semantic && f.semantic !== "custom" ? f.semantic : f.name));
   const track = selection.kind === "track" ? frame?.objects.find((o) => o.id === selection.id) : undefined;
   const vel = selection.kind === "track" ? OBJECT_VELOCITIES[selection.id] : undefined;
 
@@ -115,15 +124,45 @@ export function InspectorPanel() {
             </Section>
 
             <Section title="Data">
+              {/* §53: dataset-owned facts read from the Dataset model — no
+                  duplicate metadata state. Synthetic layers fall back to
+                  their inline summary. */}
+              {layer.datasetId && dataset && (
+                <>
+                  <PropertyRow label="Format">
+                    <span className="font-[var(--vp-font-mono)] text-[12px] text-[var(--vp-text-2)]">{dataset.format}</span>
+                  </PropertyRow>
+                  <PropertyRow label="Source">
+                    <span className="max-w-[150px] truncate font-[var(--vp-font-mono)] text-[12px] text-[var(--vp-text-2)]" title={sourceLabel}>
+                      {sourceLabel}
+                    </span>
+                  </PropertyRow>
+                </>
+              )}
               <PropertyRow label="Points">
                 <span className="font-[var(--vp-font-mono)] text-[12px] text-[var(--vp-text-2)]">
-                  {layer.pointCount?.toLocaleString() ?? (frame?.n ?? 0).toLocaleString()}
+                  {(dataset?.metadata.pointCount ?? layer.pointCount)?.toLocaleString() ?? (frame?.n ?? 0).toLocaleString()}
                 </span>
               </PropertyRow>
-              {layer.bounds && (
-                <PropertyRow label="Extent">
-                  <span className="font-[var(--vp-font-mono)] text-[12px] text-[var(--vp-text-2)]">
-                    {(layer.bounds[3] - layer.bounds[0]).toFixed(0)} × {(layer.bounds[4] - layer.bounds[1]).toFixed(0)} × {(layer.bounds[5] - layer.bounds[2]).toFixed(0)} m
+              {(() => {
+                const b = dataset?.metadata.bounds;
+                const ext = b
+                  ? [b.max[0] - b.min[0], b.max[1] - b.min[1], b.max[2] - b.min[2]]
+                  : layer.bounds
+                    ? [layer.bounds[3] - layer.bounds[0], layer.bounds[4] - layer.bounds[1], layer.bounds[5] - layer.bounds[2]]
+                    : null;
+                return ext ? (
+                  <PropertyRow label="Extent">
+                    <span className="font-[var(--vp-font-mono)] text-[12px] text-[var(--vp-text-2)]">
+                      {ext[0].toFixed(0)} × {ext[1].toFixed(0)} × {ext[2].toFixed(0)} m
+                    </span>
+                  </PropertyRow>
+                ) : null;
+              })()}
+              {datasetFields.length > 0 && (
+                <PropertyRow label="Fields">
+                  <span className="max-w-[150px] truncate font-[var(--vp-font-mono)] text-[12px] text-[var(--vp-text-3)]" title={datasetFields.join(", ")}>
+                    {datasetFields.join(", ")}
                   </span>
                 </PropertyRow>
               )}

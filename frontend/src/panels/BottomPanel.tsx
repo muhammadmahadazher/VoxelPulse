@@ -1,9 +1,20 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useSyncExternalStore } from "react";
 import { Pause, Play, SkipBack, SkipForward, Repeat, Terminal, Clock, PanelBottom, Maximize2 } from "lucide-react";
 import { useStore } from "../store";
 import { useUiStore } from "../stores/uiStore";
 import { setStreamPaused } from "../ws";
 import { IconButton, Chip, Tooltip, Segmented } from "../ui/kit";
+import { jobStore } from "../core/data/jobs/jobStore";
+import { cancelImport } from "../core/data/importService";
+import type { Job } from "../core/data/jobs/types";
+
+function useJobs(): Job[] {
+  return useSyncExternalStore(
+    (cb) => jobStore.subscribe(cb),
+    () => jobStore.list(),
+    () => [],
+  );
+}
 
 /** Timeline dock — compact (transport + track + time, ~64px) or expanded
  *  (tabbed timeline/console). Collapsing the whole dock is ⌘J / rail. */
@@ -171,16 +182,48 @@ declare global {
 
 export function ConsoleTab() {
   const lines = (typeof window !== "undefined" ? window.__vpLog : undefined) ?? [];
+  const jobs = useJobs();
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => { ref.current?.scrollTo(0, ref.current.scrollHeight); }, [lines.length]);
   return (
     <div ref={ref} className="h-full overflow-y-auto px-4 py-2 font-[var(--vp-font-mono)] text-[11.5px] leading-relaxed">
-      {lines.length === 0 && <div className="text-[var(--vp-text-3)]">no events yet</div>}
+      {jobs.length > 0 && (
+        <div className="mb-2 border-b pb-2" style={{ borderColor: "var(--vp-divider)" }}>
+          {jobs.map((j) => <JobRow key={j.id} job={j} />)}
+        </div>
+      )}
+      {lines.length === 0 && jobs.length === 0 && <div className="text-[var(--vp-text-3)]">no events yet</div>}
       {lines.map((l, i) => (
         <div key={i} className="text-[var(--vp-text-2)]">
           <span className="mr-2.5 text-[var(--vp-text-3)]">{l.t}</span>{l.msg}
         </div>
       ))}
+    </div>
+  );
+}
+
+/** Recent import jobs — bounded history, honest stage labels (§94–95). */
+const STATUS_ICON: Record<string, string> = {
+  completed: "✓", failed: "✕", cancelled: "⊘",
+  queued: "…", probing: "…", reading: "…", decoding: "…", "creating-layer": "…",
+};
+
+function JobRow({ job }: { job: Job }) {
+  const done = job.status === "completed" ? "text-[var(--vp-success)]"
+    : job.status === "failed" ? "text-[var(--vp-error)]"
+    : job.status === "cancelled" ? "text-[var(--vp-text-3)]" : "text-[var(--vp-accent)]";
+  const secs = job.completedAt && job.startedAt ? ((job.completedAt - job.startedAt) / 1000).toFixed(1) + " s" : "";
+  const label = job.error ? `${job.message ?? job.status} — ${job.error.message}` : job.message ?? job.status;
+  return (
+    <div className="flex items-center gap-2.5 py-0.5">
+      <span className={done}>{STATUS_ICON[job.status] ?? "…"}</span>
+      <span className="text-[var(--vp-text-2)]">{job.title}</span>
+      <span className="text-[var(--vp-text-3)]">{label}</span>
+      <button
+        onClick={() => cancelImport(job.id)}
+        className="ml-auto text-[10px] uppercase tracking-wider text-[var(--vp-text-3)] hover:text-[var(--vp-error)]">
+        {job.status === "completed" || job.status === "failed" || job.status === "cancelled" ? secs : "cancel"}
+      </button>
     </div>
   );
 }

@@ -12,8 +12,10 @@ import { BottomPanel, appendConsole } from "./panels/BottomPanel";
 import { CommandPalette } from "./ui/CommandPalette";
 import { ErrorBoundary } from "./ui/ErrorBoundary";
 import { connectStream, setStreamPaused, loadStaticFrame, setSimScenario } from "./ws";
-import { parsePointFile } from "./utils/fileParse";
 import { exportScreenshot, exportPly, exportPcd } from "./utils/exporters";
+import { chunkToFrame } from "./utils/frameBridge";
+import { importService, type ImportHooks } from "./core/data/importService";
+import { LocalFileSource } from "./core/data/source/localFile";
 import {
   serializeProject, deserializeProject, downloadProject, saveAutosave, applyProject,
 } from "./utils/projectIo";
@@ -109,31 +111,43 @@ export default function App() {
   const addData = () => {
     addInputRef.current?.click();
   };
-
-  const importFile = async (file: File) => {
-    if (!useProjectStore.getState().open) useProjectStore.getState().newProject();
-    try {
-      const buf = await file.arrayBuffer();
-      const frame = parsePointFile(file.name, buf);
-      loadStaticFrame(frame, file.name);
-      let mn = [Infinity, Infinity, Infinity], mx = [-Infinity, -Infinity, -Infinity];
-      for (let i = 0; i < frame.n; i++) {
-        for (let k = 0; k < 3; k++) {
-          const v = frame.positions[i * 3 + k];
-          if (v < mn[k]) mn[k] = v;
-          if (v > mx[k]) mx[k] = v;
-        }
-      }
-      useProjectStore.getState().addLayer({
-        id: nextLayerId(), name: file.name, type: "pointcloud", visible: true,
-        locked: false, opacity: 1, source: { kind: "file", name: file.name },
-        pointCount: frame.n,
-        bounds: [mn[0], mn[1], mn[2], mx[0], mx[1], mx[2]],
+  // One import pipeline for Add Data, drag-drop and multi-file (§50, §92).
+  const importHooks: ImportHooks = {
+    createLayer: ({ descriptor, chunk, sourceLabel }) => {
+      loadStaticFrame(chunkToFrame(chunk), sourceLabel);
+      useProjectStore.getState().addDataset({
+        id: descriptor.id,
+        name: descriptor.name,
+        format: descriptor.format,
+        kind: descriptor.kind,
+        source: descriptor.source as Record<string, unknown>,
+        metadata: {
+          pointCount: descriptor.metadata.pointCount,
+          bounds: descriptor.metadata.bounds,
+          fields: descriptor.metadata.fields,
+          formatVersion: descriptor.metadata.formatVersion,
+          formatSpecific: descriptor.metadata.formatSpecific,
+          createdAt: descriptor.metadata.createdAt,
+        },
       });
-      appendConsole(`imported ${file.name} — ${frame.n.toLocaleString()} points`);
-    } catch (e) {
-      setNotice({ text: `Could not open ${file.name}`, detail: (e as Error).message });
-    }
+      useProjectStore.getState().addLayer({
+        id: nextLayerId(), name: descriptor.name, type: "pointcloud", visible: true,
+        locked: false, opacity: 1, datasetId: descriptor.id,
+        source: { kind: "file", name: descriptor.name },
+        pointCount: chunk.pointCount,
+        bounds: [
+          chunk.bounds.min[0], chunk.bounds.min[1], chunk.bounds.min[2],
+          chunk.bounds.max[0], chunk.bounds.max[1], chunk.bounds.max[2],
+        ],
+      });
+      appendConsole(`imported ${descriptor.name} — ${chunk.pointCount.toLocaleString()} points (${descriptor.format})`);
+    },
+    frameBounds: (b) => {
+      handleRef.current?.frameBounds([b.min[0], b.min[1], b.min[2], b.max[0], b.max[1], b.max[2]]);
+    },
+    notifyError: (title, message, detail) => {
+      setNotice({ text: title, detail: detail ? `${message} (${detail})` : message });
+    },
   };
 
   const startExample = (example: string) => {
@@ -164,9 +178,12 @@ export default function App() {
     const onDrop = (e: DragEvent) => {
       e.preventDefault();
       setDragOver(false);
-      const file = e.dataTransfer?.files?.[0];
-      if (file?.name.toLowerCase().endsWith(".vxp")) return;
-      if (file) void importFile(file);
+      const files = [...(e.dataTransfer?.files ?? [])];
+      if (files[0]?.name.toLowerCase().endsWith(".vxp")) return; // project drop handled elsewhere
+      if (files.length) {
+        if (!useProjectStore.getState().open) useProjectStore.getState().newProject();
+        importService.importFiles(files, importHooks); // §92: same pipeline, independent jobs
+      }
     };
     window.addEventListener("dragover", onOver);
     window.addEventListener("dragleave", onLeave);
@@ -284,10 +301,10 @@ export default function App() {
     else if (a.kind === "example" && a.example) startExample(a.example);
   };
 
-  const onAddInput = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+  const onAddInput = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = [...(e.target.files ?? [])];
     e.target.value = "";
-    if (file) await importFile(file);
+    if (files.length) importService.importFiles(files, importHooks); // §91
   };
   const onOpenInput = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -323,7 +340,7 @@ export default function App() {
       canvasOverlay={projectOpen ? <ProbeChip /> : null}
     >
       {/* persistent, accessible file inputs (hidden chrome) */}
-      <input ref={addInputRef} type="file" id="vp-add-data" aria-hidden
+      <input ref={addInputRef} type="file" id="vp-add-data" aria-hidden multiple
         accept=".las,.ply,.pcd,.xyz,.txt,.pts" className="hidden" onChange={onAddInput} />
       <input ref={openInputRef} type="file" id="vp-open-project" aria-hidden
         accept=".vxp,application/json" className="hidden" onChange={onOpenInput} />
