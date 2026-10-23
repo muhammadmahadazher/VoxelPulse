@@ -19,7 +19,7 @@ function decode(job: WorkerJob): void {
   try {
     let parsed: {
       pointCount: number;
-      positions: Float32Array;
+      positions: Float32Array | Float64Array;
       intensity?: Float32Array;
       colors?: Uint8Array;
       classification?: Uint8Array;
@@ -58,6 +58,7 @@ function decode(job: WorkerJob): void {
       id: job.id,
       pointCount: parsed.pointCount,
       positions: parsed.positions.buffer as ArrayBuffer,
+      positionsType: parsed.positions instanceof Float64Array ? "f64" : "f32",
       intensity: parsed.intensity?.buffer as ArrayBuffer | undefined,
       colors: parsed.colors?.buffer as ArrayBuffer | undefined,
       classification: parsed.classification?.buffer as ArrayBuffer | undefined,

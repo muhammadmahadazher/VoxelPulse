@@ -9,7 +9,9 @@ export const MAX_XYZ_POINTS = 400_000; // allocation guard (§113)
 
 export interface ParsedPoints {
   pointCount: number;
-  positions: Float32Array;
+  /** §89: text XYZ may carry large survey coordinates — parsed as JS doubles
+   *  and stored Float64; Float32 narrowing happens after origin subtraction. */
+  positions: Float64Array;
   intensity: Float32Array;
   hasIntensityColumn: boolean;
 }
@@ -18,7 +20,7 @@ const INITIAL_CAPACITY = 8_192;
 
 export function parseXyz(text: string, opts?: { maxPoints?: number }): ParsedPoints {
   const maxPoints = Math.min(opts?.maxPoints ?? MAX_XYZ_POINTS, MAX_XYZ_POINTS);
-  let positions: Float32Array = new Float32Array(INITIAL_CAPACITY * 3);
+  let positions: Float64Array = new Float64Array(INITIAL_CAPACITY * 3);
   let intensity: Float32Array = new Float32Array(INITIAL_CAPACITY);
   let n = 0;
   let linesWithCoords = 0;
@@ -73,14 +75,16 @@ export function parseXyz(text: string, opts?: { maxPoints?: number }): ParsedPoi
   };
 }
 
-function grow(arr: Float32Array, factor: number): Float32Array {
-  const next = new Float32Array(arr.length * factor);
+function grow<T extends Float64Array | Float32Array>(arr: T, factor: number): T {
+  const next = (arr instanceof Float64Array
+    ? new Float64Array(arr.length * factor)
+    : new Float32Array(arr.length * factor)) as T;
   next.set(arr);
   return next;
 }
 
 /** Field schema reported by the XYZ adapter (§8). */
 export const XYZ_FIELDS: FieldDefinition[] = [
-  { name: "x", semantic: "position", scalarType: "float32", components: 3, unit: "m" },
+  { name: "x", semantic: "position", scalarType: "float64", components: 3, unit: "m" },
   { name: "intensity", semantic: "intensity", scalarType: "float32", components: 1 },
 ];

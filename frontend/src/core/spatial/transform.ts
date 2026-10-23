@@ -86,14 +86,17 @@ export function transformPositions(
 ): Float32Array | Float64Array {
   const conv = getTransform(from, to);
   const n = Math.min(pointCount, Math.floor(positions.length / 3));
+  const useF64 = opts?.outType === "float64" || (!opts?.outType && positions instanceof Float64Array);
   if (!conv) {
     if (opts?.into) {
       opts.into.set(positions.subarray(0, n * 3));
       return opts.into;
     }
+    if (useF64 && !(positions instanceof Float64Array)) {
+      return new Float64Array(positions.subarray(0, n * 3));
+    }
     return positions.slice(0, n * 3);
   }
-  const useF64 = opts?.outType === "float64" || (!opts?.outType && positions instanceof Float64Array);
   const out = opts?.into ?? (useF64 ? new Float64Array(n * 3) : new Float32Array(n * 3));
   const tmp: number[] = [0, 0];
   for (let i = 0; i < n; i++) {

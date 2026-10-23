@@ -142,4 +142,71 @@ function patternPoints(n) {
   writeFileSync(join(root, "tiny-binary.pcd"), Buffer.concat([head, body]));
 }
 
+// ---- tiny-geo.las — Lahore block in EPSG:32643, WGS84 VLR (WKT1) embedded.
+// Same landmark points as lahore-4326.xyz — the Phase 3 alignment fixture pair.
+{
+  const proj4 = (await import("proj4")).default;
+  const LAT = 31.5204, LON = 74.3587; // Lahore — deterministic, offline
+  const pts = [];
+  for (let i = 0; i < 25; i++) {
+    const dLat = ((i % 5) - 2) * 0.00002;   // ±2 steps of ~2.2 m
+    const dLon = (Math.floor(i / 5) - 2) * 0.000025;
+    const [e, n] = proj4("EPSG:4326", "EPSG:32643", [LON + dLon, LAT + dLat]);
+    pts.push([e, n, 210 + (i % 4) * 1.5, Math.round(60 + 150 * (i / 25)) / 255]);
+  }
+  const scale = [0.001, 0.001, 0.001];
+  const offset = [Math.floor(pts[0][0]), Math.floor(pts[0][1]), 0];
+  const wkt = 'PROJCS["WGS 84 / UTM zone 43N",GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563]],PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433]],PROJECTION["Transverse_Mercator"],PARAMETER["latitude_of_origin",0],PARAMETER["central_meridian",75],PARAMETER["scale_factor",0.9996],PARAMETER["false_easting",500000],PARAMETER["false_northing",0],UNIT["metre",1],AUTHORITY["EPSG","32643"]]';
+  const wktBytes = Buffer.from(wkt + "\0", "utf8");
+  const vlrLen = wktBytes.length + (wktBytes.length % 2); // even-padded
+  const headerSize = 227;
+  const vlr = Buffer.alloc(54 + vlrLen);
+  vlr.writeUInt16LE(0, 0); // reserved
+  vlr.write("LASF_Projection", 2, "ascii");
+  vlr.writeUInt16LE(2112, 18); // OGC WKT record
+  vlr.write("Lahore UTM 43N fixture", 20, "ascii");
+  vlr.writeUInt16LE(wktBytes.length, 52);
+  wktBytes.copy(vlr, 54);
+
+  const n = pts.length;
+  const recordLength = 20;
+  const buf = Buffer.alloc(headerSize + vlr.length + n * recordLength);
+  buf.write("LASF", 0, "ascii");
+  buf.writeUInt8(1, 24);
+  buf.writeUInt8(2, 25);
+  buf.writeUInt16LE(headerSize, 94);
+  buf.writeUInt32LE(headerSize + vlr.length, 96); // point data after VLRs
+  buf.writeUInt32LE(1, 104); // one VLR
+  buf.writeUInt8(0, 106);
+  buf.writeUInt16LE(recordLength, 107);
+  buf.writeUInt32LE(n, 109);
+  for (let k = 0; k < 3; k++) buf.writeDoubleLE(scale[k], 131 + 8 * k);
+  for (let k = 0; k < 3; k++) buf.writeDoubleLE(offset[k], 155 + 8 * k);
+  const es = pts.map((p) => p[0]), ns = pts.map((p) => p[1]), zs = pts.map((p) => p[2]);
+  buf.writeDoubleLE(Math.min(...es), 179);
+  buf.writeDoubleLE(Math.min(...ns), 187);
+  buf.writeDoubleLE(Math.min(...zs), 195);
+  buf.writeDoubleLE(Math.max(...es), 203);
+  buf.writeDoubleLE(Math.max(...ns), 211);
+  buf.writeDoubleLE(Math.max(...zs), 219);
+  vlr.copy(buf, headerSize);
+  pts.forEach((p, i) => {
+    const base = headerSize + vlr.length + i * recordLength;
+    buf.writeInt32LE(Math.round((p[0] - offset[0]) / scale[0]), base);
+    buf.writeInt32LE(Math.round((p[1] - offset[1]) / scale[1]), base + 4);
+    buf.writeInt32LE(Math.round((p[2] - offset[2]) / scale[2]), base + 8);
+    buf.writeUInt16LE(Math.round(p[3] * 65535), base + 12);
+  });
+  writeFileSync(join(root, "tiny-geo.las"), buf);
+
+  // Geographic twin: the same 25 landmarks as lon lat z text (EPSG:4326).
+  const geoLines = [];
+  for (let i = 0; i < 25; i++) {
+    const dLat = ((i % 5) - 2) * 0.00002;
+    const dLon = (Math.floor(i / 5) - 2) * 0.000025;
+    geoLines.push(`${(LON + dLon).toFixed(7)} ${(LAT + dLat).toFixed(7)} ${(210 + (i % 4) * 1.5).toFixed(2)}`);
+  }
+  writeFileSync(join(root, "lahore-4326.xyz"), geoLines.join("\n") + "\n", "utf8");
+}
+
 console.log("fixtures written to", root);

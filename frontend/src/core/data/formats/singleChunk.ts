@@ -16,7 +16,7 @@ const log = createLogger("formats");
 
 export interface ParsedCloud {
   pointCount: number;
-  positions: Float32Array;
+  positions: Float32Array | Float64Array;
   intensity?: Float32Array;
   colors?: Uint8Array;
   classification?: Uint8Array;

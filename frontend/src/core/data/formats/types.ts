@@ -37,7 +37,9 @@ export interface InspectedDataset {
 export interface DecodedChunk {
   index: number;
   pointCount: number;
-  positions: Float32Array;
+  /** Float32 for local-scale formats; Float64 when source precision demands
+   *  it (LAS geospatial coordinates — §91 smallest safe change). */
+  positions: Float32Array | Float64Array;
   intensity?: Float32Array;
   colors?: Uint8Array;
   classification?: Uint8Array;

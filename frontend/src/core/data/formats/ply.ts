@@ -6,6 +6,7 @@ import type { DataFormat } from "../types";
 import type { FormatAdapter, ProbeContext, ProbeResult } from "./types";
 import { readPlyHeader, parsePly } from "./parsers/ply";
 import { boundsFromPositions } from "../bounds";
+import { UNKNOWN_REFERENCE } from "../../spatial/reference";
 import type { FieldDefinition } from "../metadata";
 import { makeSingleChunkAdapter, type SingleChunkSpec } from "./singleChunk";
 
@@ -46,6 +47,7 @@ const spec: SingleChunkSpec = {
       // chunk decode. Header-only bounds are not in the format.
       fields,
       createdAt: new Date().toISOString(),
+      spatialReference: { reference: UNKNOWN_REFERENCE, source: "none", detail: "no CRS container — UNKNOWN" },
       formatSpecific: {
         ply: {
           encoding: fmt,

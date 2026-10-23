@@ -26,7 +26,8 @@ export type WorkerResponse =
       id: string;
       pointCount: number;
       positions: ArrayBuffer;
-      positionsByteOffset?: number;
+      /** Source precision flag — Float64 must survive the boundary (§87–89). */
+      positionsType: "f32" | "f64";
       intensity?: ArrayBuffer;
       colors?: ArrayBuffer;
       classification?: ArrayBuffer;

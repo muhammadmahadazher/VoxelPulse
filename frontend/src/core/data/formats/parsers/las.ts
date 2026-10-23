@@ -19,11 +19,14 @@ export interface LasHeaderInfo {
   offset: [number, number, number];
   headerBounds: Bounds3D | null;
   legacyCount: number;
+  numVlrs: number;
 }
 
 export interface ParsedLas {
   pointCount: number;
-  positions: Float32Array;
+  /** §87–88: geospatial LAS coordinates stay Float64 through decode —
+   *  scale/offset in doubles; Float32 happens only after origin subtraction. */
+  positions: Float64Array;
   intensity: Float32Array; // normalized 0..1
   colors: Uint8Array | null; // RGB, formats 2/3/5
   classification: Uint8Array | null; // formats 0/1/4
@@ -105,6 +108,7 @@ export function readLasHeader(buf: ArrayBuffer): LasHeaderInfo {
     offset: offset.every(Number.isFinite) ? offset : [0, 0, 0],
     headerBounds,
     legacyCount,
+    numVlrs: dv.getUint32(104, true),
   };
 }
 
@@ -134,7 +138,7 @@ export function parseLas(buf: ArrayBuffer, opts?: { maxPoints?: number }): Parse
   }
   const n = Math.min(header.pointCount, maxPoints);
   const { scale, offset: off } = header;
-  const positions = new Float32Array(n * 3);
+  const positions = new Float64Array(n * 3);
   const intensity = new Float32Array(n);
   const hasRgb = header.pointFormat === 2 || header.pointFormat === 3 || header.pointFormat === 5;
   const hasClass = header.pointFormat === 0 || header.pointFormat === 1 || header.pointFormat === 4;
@@ -160,7 +164,7 @@ export function parseLas(buf: ArrayBuffer, opts?: { maxPoints?: number }): Parse
 }
 
 export const LAS_FIELDS: FieldDefinition[] = [
-  { name: "x", semantic: "position", scalarType: "float32", components: 3, unit: "m" },
+  { name: "x", semantic: "position", scalarType: "float64", components: 3, unit: "m" },
   { name: "intensity", semantic: "intensity", scalarType: "float32", components: 1 },
   { name: "rgb", semantic: "color", scalarType: "uint8" as ScalarType, components: 3, normalized: true },
   { name: "classification", semantic: "classification", scalarType: "uint8", components: 1 },
@@ -168,3 +172,55 @@ export const LAS_FIELDS: FieldDefinition[] = [
 
 /** Metadata-only read of the fixed header — 375 bytes, no points (§66). */
 export const LAS_HEADER_BYTES = 375;
+
+/* -------------------------------------------------- VLR / CRS metadata --- */
+
+export interface LasVlr {
+  userId: string;
+  recordId: number;
+  data: Uint8Array;
+}
+
+/** Parse the VLR region (between the header and point data). Bounded at
+ *  64 KB; truncated files simply yield fewer records. Per LAS 1.4 R13:
+ *  reserved u16, user_id[16], record_id u16, description[32], length u16. */
+export function readLasVlrs(buf: ArrayBuffer): LasVlr[] {
+  if (buf.byteLength < 227) return [];
+  const dv = new DataView(buf);
+  const headerLen = dv.getUint16(94, true) || 227;
+  const numVlrs = dv.getUint32(104, true);
+  const pointDataOffset = dv.getUint32(96, true);
+  let off = headerLen;
+  const end = Math.min(pointDataOffset > 0 ? pointDataOffset : buf.byteLength, buf.byteLength);
+  const vlrs: LasVlr[] = [];
+  const decoder = new TextDecoder();
+  for (let i = 0; i < numVlrs && off + 54 <= end; i++) {
+    const userId = decoder.decode(new Uint8Array(buf, off + 2, 16)).replace(/\0[\s\S]*$/, "").trim();
+    const recordId = dv.getUint16(off + 18, true);
+    const dataLen = dv.getUint16(off + 52, true);
+    const dataStart = off + 54;
+    if (dataStart + dataLen > end) break;
+    vlrs.push({ userId, recordId, data: new Uint8Array(buf.slice(dataStart, dataStart + dataLen)) });
+    off = dataStart + dataLen;
+  }
+  return vlrs;
+}
+
+/** The OGC WKT CRS from the LASF_Projection record 2112 (LAS 1.1+ WKT VLR),
+ *  or null. GeoTIFF-key records (2111/2113/2114) are intentionally not
+ *  parsed in Phase 3 — documented partial support (§13–14). */
+export function lasProjectionWkt(buf: ArrayBuffer): string | null {
+  for (const v of readLasVlrs(buf)) {
+    if (v.userId === "LASF_Projection" && v.recordId === 2112) {
+      const wkt = new TextDecoder().decode(v.data).replace(/\0[\s\S]*$/, "").trim();
+      if (wkt) return wkt;
+    }
+  }
+  return null;
+}
+
+/** EPSG code embedded in a WKT1 AUTHORITY clause, if any. */
+export function epsgFromWkt(wkt: string): string | null {
+  const m = wkt.match(/AUTHORITY\["EPSG","(\d{4,5})"\]/i);
+  return m ? m[1] : null;
+}

@@ -11,7 +11,9 @@ export interface PointCloudRenderResource {
   datasetId: string;
   chunkIndex: number;
   pointCount: number;
-  positions: Float32Array;
+  /** Source-precision positions (Float64 for geospatial LAS); render-space
+   *  Float32 narrowing happens in the origin pipeline (§84). */
+  positions: Float32Array | Float64Array;
   colors?: Uint8Array;
   intensity?: Float32Array;
   classification?: Uint8Array;

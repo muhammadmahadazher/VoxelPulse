@@ -2,6 +2,7 @@
  *  structured; format-specific values live under `formatSpecific`, never in an
  *  untyped junk drawer. */
 import type { Bounds3D } from "./bounds";
+import type { SpatialReferenceInfo } from "../spatial/reference";
 
 export type ScalarType =
   | "float32" | "float64"
@@ -38,6 +39,11 @@ export interface DatasetMetadata {
 
   createdAt?: string;
   formatVersion?: string;
+
+  /** §104: adapters discover; the transform service interprets. Absent field
+   *  means the adapter didn't evaluate CRS at all — an explicit UNKNOWN
+   *  reference (source "none") is the honest "no CRS container" answer. */
+  spatialReference?: SpatialReferenceInfo;
 
   /** Namespaced format-specific values, e.g. { las: { pointFormat: 3 } }. */
   formatSpecific?: Record<string, Record<string, unknown>>;

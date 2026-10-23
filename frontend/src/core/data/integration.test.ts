@@ -27,13 +27,13 @@ function fileOf(name: string): File {
 }
 
 describe.each([
-  { file: "tiny.xyz", format: "xyz", points: 30 },
-  { file: "tiny.las", format: "las", points: 40 },
-  { file: "tiny.ply", format: "ply", points: 25 },
-  { file: "tiny-binary.ply", format: "ply", points: 25 },
-  { file: "tiny.pcd", format: "pcd", points: 25 },
-  { file: "tiny-binary.pcd", format: "pcd", points: 25 },
-])("full pipeline: $file", ({ file, format, points }) => {
+  { file: "tiny.xyz", format: "xyz", points: 30, f64: true },
+  { file: "tiny.las", format: "las", points: 40, f64: true },
+  { file: "tiny.ply", format: "ply", points: 25, f64: false },
+  { file: "tiny-binary.ply", format: "ply", points: 25, f64: false },
+  { file: "tiny.pcd", format: "pcd", points: 25, f64: false },
+  { file: "tiny-binary.pcd", format: "pcd", points: 25, f64: false },
+])("full pipeline: $file", ({ file, format, points, f64 }) => {
   it("File → source → registry → adapter → dataset → chunk → render resource", async () => {
     const source = new LocalFileSource(fileOf(file));
     const { dataset } = await datasetManager.openSource(source, {
@@ -45,7 +45,8 @@ describe.each([
     const chunk = await datasetManager.readChunk(dataset.id, 0);
     const resource = chunkToRenderResource(chunk, dataset.id);
     expect(resource.pointCount).toBe(points);
-    expect(resource.positions).toBeInstanceOf(Float32Array);
+    // §87–89: LAS/XYZ source precision stays Float64 through decode
+    expect(resource.positions).toBeInstanceOf(f64 ? Float64Array : Float32Array);
     expect(resource.bounds.max[0]).toBeGreaterThanOrEqual(resource.bounds.min[0]);
     expect(resource.fields.length).toBeGreaterThan(0);
 

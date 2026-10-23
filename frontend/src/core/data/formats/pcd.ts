@@ -5,6 +5,7 @@ import type { DataFormat } from "../types";
 import type { FormatAdapter, ProbeContext, ProbeResult } from "./types";
 import { readPcdHeader, parsePcd } from "./parsers/pcd";
 import { boundsFromPositions } from "../bounds";
+import { UNKNOWN_REFERENCE } from "../../spatial/reference";
 import { VpDataError } from "../errors";
 import type { FieldDefinition } from "../metadata";
 import { makeSingleChunkAdapter, type SingleChunkSpec } from "./singleChunk";
@@ -47,6 +48,7 @@ const spec: SingleChunkSpec = {
       pointCount: header.pointCount,
       fields,
       createdAt: new Date().toISOString(),
+      spatialReference: { reference: UNKNOWN_REFERENCE, source: "none", detail: "no CRS container — UNKNOWN" },
       formatSpecific: {
         pcd: {
           encoding: header.encoding,

@@ -24,7 +24,7 @@ describe("parseXyz", () => {
 
   it("computes nothing here but preserves order for bounds", () => {
     const r = parseXyz("1 2 3\n-1 -2 -3");
-    expect(r.positions).toEqual(new Float32Array([1, 2, 3, -1, -2, -3]));
+    expect(r.positions).toEqual(new Float64Array([1, 2, 3, -1, -2, -3]));
   });
 
   it("rejects empty and non-coordinate text with structured errors", () => {
@@ -91,7 +91,7 @@ describe("XyzAdapter", () => {
     expect(ds.chunkCount).toBe(1);
     const chunk = await ds.readChunk(0);
     expect(chunk.pointCount).toBe(4);
-    expect(chunk.positions).toBeInstanceOf(Float32Array);
+    expect(chunk.positions).toBeInstanceOf(Float64Array); // §89: doubles survive decode
     expect(chunk.intensity?.length).toBe(4);
     expect(chunk.bounds.max).toEqual([2, 3, 6]);
     expect(ds.info.metadata.sourceSizeBytes).toBe(text.length);

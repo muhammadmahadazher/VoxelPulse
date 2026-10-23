@@ -80,10 +80,9 @@ export function prepareChunk(chunk: DecodedChunk, opts: ChunkPrepareOptions): Pr
     positions[i * 3 + 2] = world[i * 3 + 2] - oz;
   }
   const renderBounds = boundsFromPositions(positions, n);
-  const worldBounds: Bounds3D = {
-    min: [renderBounds.min[0] + ox, renderBounds.min[1] + oy, renderBounds.min[2] + oz],
-    max: [renderBounds.max[0] + ox, renderBounds.max[1] + oy, renderBounds.max[2] + oz],
-  };
+  // World bounds derive from the Float64 world array — Float32 render
+  // quantization must never leak into reported facts (§26).
+  const worldBounds = boundsFromPositions(world as Float64Array, n);
   return { positions, renderBounds, worldBounds };
 }
 

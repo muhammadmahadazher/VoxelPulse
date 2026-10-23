@@ -47,7 +47,7 @@ export function setPool(p: WorkerPool | null): void {
 
 export function decodeInPlace(format: DataFormat, buffer: ArrayBuffer): {
   pointCount: number;
-  positions: Float32Array;
+  positions: Float32Array | Float64Array;
   intensity?: Float32Array;
   colors?: Uint8Array;
   classification?: Uint8Array;
@@ -86,7 +86,7 @@ export async function decodeChunkData(
           extract: (r) => ({
             index: 0,
             pointCount: r.pointCount,
-            positions: new Float32Array(r.positions),
+            positions: r.positionsType === "f64" ? new Float64Array(r.positions) : new Float32Array(r.positions),
             intensity: r.intensity ? new Float32Array(r.intensity) : undefined,
             colors: r.colors ? new Uint8Array(r.colors) : undefined,
             classification: r.classification ? new Uint8Array(r.classification) : undefined,

@@ -11,6 +11,7 @@ import type {
   DecodedChunk, FormatAdapter, InspectedDataset, OpenedDataset, ProbeContext, ProbeResult,
 } from "./types";
 import { parseXyz, XYZ_FIELDS, type ParsedPoints } from "./parsers/xyz";
+import { UNKNOWN_REFERENCE } from "../../spatial/reference";
 
 const TEXT_EXT = /\.(xyz|txt|pts|asc)$/i;
 
@@ -55,6 +56,7 @@ export class XyzAdapter implements FormatAdapter {
         bounds,
         fields: XYZ_FIELDS,
         createdAt: new Date().toISOString(),
+      spatialReference: { reference: UNKNOWN_REFERENCE, source: "none", detail: "text may be geospatial — UNKNOWN (§52)" },
         formatSpecific: { xyz: { hasIntensityColumn: parsed.hasIntensityColumn } },
       },
       chunkCount: 1,
