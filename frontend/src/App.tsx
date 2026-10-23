@@ -14,8 +14,9 @@ import { ErrorBoundary } from "./ui/ErrorBoundary";
 import { connectStream, setStreamPaused, loadStaticFrame, setSimScenario } from "./ws";
 import { exportScreenshot, exportPly, exportPcd } from "./utils/exporters";
 import { chunkToFrame } from "./utils/frameBridge";
-import { displayChunk, showPrepared, retransformDisplayedLayer } from "./utils/projectSpatial";
+import { displayChunk, showPrepared, retransformDisplayedLayer, renderOrigin, setSessionOrigin } from "./utils/projectSpatial";
 import { importService, type ImportHooks } from "./core/data/importService";
+import { decodeChunkData } from "./core/data/workers/client";
 import { datasetManager } from "./core/data/datasetManager";
 import { LocalFileSource } from "./core/data/source/localFile";
 import {
@@ -27,6 +28,16 @@ import { useProjectStore, type Layer } from "./stores/projectStore";
 
 let layerSeq = 0;
 const nextLayerId = () => `lyr-${Date.now().toString(36)}-${layerSeq++}`;
+
+/** Extension-based format guess for relink verification (§48). */
+function detectFormatName(name: string): string {
+  const lower = name.toLowerCase();
+  if (lower.endsWith(".las")) return "las";
+  if (lower.endsWith(".ply")) return "ply";
+  if (lower.endsWith(".pcd")) return "pcd";
+  if (/\.(xyz|txt|pts)$/.test(lower)) return "xyz";
+  return "";
+}
 
 /** Default scene layers for a fresh project (stream-driven). */
 function ensureDefaultLayers(mode: "demo" | "stream") {
@@ -80,7 +91,7 @@ export default function App() {
   useEffect(() => {
     const iv = setInterval(() => {
       const p = useProjectStore.getState();
-      if (p.open && p.dirty) saveAutosave(serializeProject(handleRef.current?.camera() ?? null, useStore.getState().viewLayout));
+      if (p.open && p.dirty) saveAutosave(serializeProject(handleRef.current?.camera() ?? null, useStore.getState().viewLayout, renderOrigin().world));
     }, 30000);
     return () => clearInterval(iv);
   }, []);
@@ -100,7 +111,7 @@ export default function App() {
       if (!typed) return;
       useProjectStore.getState().markSaved(typed.endsWith(".vxp") ? typed : typed + ".vxp");
     }
-    const doc = serializeProject(handleRef.current?.camera() ?? null, useStore.getState().viewLayout);
+    const doc = serializeProject(handleRef.current?.camera() ?? null, useStore.getState().viewLayout, renderOrigin().world);
     downloadProject(useProjectStore.getState().savedRef ?? name, doc);
     saveAutosave(doc);
     appendConsole(`project saved — ${useProjectStore.getState().savedRef ?? name}`);
@@ -352,6 +363,8 @@ export default function App() {
     try {
       const doc = deserializeProject(JSON.parse(await file.text()));
       const restored = applyProject(doc);
+      // §69: origin first, so render-local camera values resolve correctly.
+      if (doc.workspace.renderOrigin) setSessionOrigin(doc.workspace.renderOrigin);
       if (restored.viewLayout === "split" || restored.viewLayout === "fusion")
         useStore.getState().setViewLayout(restored.viewLayout);
       if (restored.camera) handleRef.current?.restoreCamera(restored.camera);
@@ -359,6 +372,86 @@ export default function App() {
       appendConsole(`project opened — ${file.name} (${doc.layers.length} layers)`);
     } catch (err) {
       setNotice({ text: `Could not open ${file.name}`, detail: (err as Error).message });
+    }
+  };
+
+  // ---- §47–49: missing local source re-linking ----------------------------
+  const relinkInputRef = useRef<HTMLInputElement>(null);
+  const relinkTargetRef = useRef<string | null>(null);
+  useEffect(() => {
+    const onRelink = (e: Event) => {
+      relinkTargetRef.current = (e as CustomEvent<string>).detail;
+      relinkInputRef.current?.click();
+    };
+    document.addEventListener("vp-relink", onRelink);
+    return () => document.removeEventListener("vp-relink", onRelink);
+  }, []);
+
+  const onRelinkInput = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const picked = e.target.files?.[0];
+    e.target.value = "";
+    const datasetId = relinkTargetRef.current;
+    appendConsole(`relink attempt — file ${picked?.name ?? "none"}, target ${datasetId ?? "none"}`);
+    if (!picked || !datasetId) return;
+    // §49: read the bytes eagerly while the handle is fresh and re-back a
+    // plain File with them — lazily-backed handles from file choosers can
+    // become unreadable mid-session (observed under CDP/automation).
+    const bytes = await picked.arrayBuffer();
+    const file = new File([bytes], picked.name, {
+      lastModified: picked.lastModified, type: picked.type,
+    });
+    const ref = useProjectStore.getState().datasets.find((d) => d.id === datasetId);
+    if (!ref) {
+      appendConsole(`relink aborted — dataset ${datasetId} not found in project refs`);
+      return;
+    }
+    // §48 verification: filename, size, format. Mismatch requires explicit
+    // confirmation — never silently replace a dataset.
+    const size = file.size;
+    const declaredSize = typeof ref.source.size === "number" ? ref.source.size : undefined;
+    const nameOk = file.name === (ref.source as { name?: string }).name;
+    const sizeOk = declaredSize === undefined || declaredSize === size;
+    const formatOk = detectFormatName(file.name) === ref.format ||
+      ["xyz", "txt", "pts"].includes(ref.format) && /\.(xyz|txt|pts)$/i.test(file.name);
+    if (!nameOk || !sizeOk || !formatOk) {
+      const detail = [
+        nameOk ? null : `name ${file.name} ≠ ${String((ref.source as { name?: string }).name)}`,
+        sizeOk ? null : `size ${size.toLocaleString()} ≠ ${declaredSize?.toLocaleString?.() ?? "unknown"}`,
+        formatOk ? null : `format ≠ ${ref.format}`,
+      ].filter(Boolean).join("; ");
+      const proceed = window.confirm(
+        `The selected file does not match the missing source (${detail}). Use it anyway?`,
+      );
+      if (!proceed) {
+        appendConsole(`relink cancelled — verification failed (${detail})`);
+        return;
+      }
+    }
+    try {
+      const { dataset } = await datasetManager.openSource(new LocalFileSource(file), {
+        decodeChunk: (fmt, buffer, signal) => decodeChunkData(fmt, buffer, { signal }),
+      });
+      // Preserve the project-facing identity: swap the dataset id through
+      // refs and layers so the saved project keeps pointing at one dataset.
+      const p = useProjectStore.getState();
+      useProjectStore.setState({
+        datasets: p.datasets.map((d) => d.id === datasetId
+          ? { ...d, id: dataset.id, metadata: { ...d.metadata, spatialReference: dataset.info.metadata.spatialReference } }
+          : d),
+        layers: p.layers.map((l) => (l.datasetId === datasetId ? { ...l, datasetId: dataset.id } : l)),
+        dirty: true,
+      });
+      const { prepared } = await displayChunk(dataset.id);
+      const chunk = await datasetManager.readChunk(dataset.id, 0);
+      showPrepared(prepared, chunk, file.name);
+      handleRef.current?.frameBounds([
+        prepared.worldBounds.min[0], prepared.worldBounds.min[1], prepared.worldBounds.min[2],
+        prepared.worldBounds.max[0], prepared.worldBounds.max[1], prepared.worldBounds.max[2],
+      ]);
+      datasetManager.releaseRef(datasetId); // old id held one ref from openSource-side refs
+      appendConsole(`relinked ${ref.name} → ${file.name} (${chunk.pointCount.toLocaleString()} points)`);
+    } catch (err) {
+      setNotice({ text: `Could not relink ${ref.name}`, detail: (err as Error).message });
     }
   };
 
@@ -383,6 +476,8 @@ export default function App() {
         accept=".las,.ply,.pcd,.xyz,.txt,.pts" className="hidden" onChange={onAddInput} />
       <input ref={openInputRef} type="file" id="vp-open-project" aria-hidden
         accept=".vxp,application/json" className="hidden" onChange={onOpenInput} />
+      <input ref={relinkInputRef} type="file" id="vp-relink" aria-hidden
+        accept=".las,.ply,.pcd,.xyz,.txt,.pts" className="hidden" onChange={onRelinkInput} />
 
       <ErrorBoundary>
         <Viewport handleRef={handleRef} />

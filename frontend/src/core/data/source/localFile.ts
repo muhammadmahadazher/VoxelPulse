@@ -29,9 +29,10 @@ export class LocalFileSource implements DataSource {
     if (signal?.aborted) throw cancellationError();
     try {
       const r = range ? clampRange(range, this.file.size) : { offset: 0, length: this.file.size };
-      const blob = r.offset === 0 && r.length === this.file.size
-        ? this.file
-        : this.file.slice(r.offset, r.offset + r.length);
+      // Always read through Blob.slice: a whole-File arrayBuffer() can hang on
+      // programmatically-injected files (observed under Playwright/CDP), while
+      // slice-based reads are reliable everywhere.
+      const blob = this.file.slice(r.offset, r.offset + r.length);
       return await blob.arrayBuffer();
     } catch (e) {
       throw toVpDataError(e, "read-failed", `Could not read ${this.file.name}`, {

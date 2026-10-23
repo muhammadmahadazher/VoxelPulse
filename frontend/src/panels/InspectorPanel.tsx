@@ -128,6 +128,24 @@ export function InspectorPanel() {
               {/* §53: dataset-owned facts read from the Dataset model — no
                   duplicate metadata state. Synthetic layers fall back to
                   their inline summary. */}
+              {layer.datasetId && !dataset && (
+                <>
+                  <PropertyRow label="Source">
+                    <span className="font-[var(--vp-font-mono)] text-[12px] text-[var(--vp-warning)]">missing (not connected)</span>
+                  </PropertyRow>
+                  <div className="pt-1.5">
+                    <button
+                      onClick={() => document.dispatchEvent(new CustomEvent("vp-relink", { detail: layer.datasetId }))}
+                      className="vp-focusable w-full rounded-[var(--vp-r-md)] border px-2.5 py-1.5 text-[12px] font-medium text-[var(--vp-accent)] hover:bg-[var(--vp-accent-soft)]"
+                      style={{ borderColor: "var(--vp-accent)" }}>
+                      Locate File…
+                    </button>
+                    <div className="pt-1 text-[11px] text-[var(--vp-text-3)]">
+                      This project references a local file that is not connected in this session.
+                    </div>
+                  </div>
+                </>
+              )}
               {layer.datasetId && dataset && (
                 <>
                   {crsInfo ? (

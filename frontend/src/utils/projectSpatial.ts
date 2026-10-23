@@ -48,6 +48,13 @@ export function renderOrigin(): RenderOrigin {
   return state.origin;
 }
 
+/** §45, §69: restore the session origin from a project file BEFORE camera
+ *  restore, so stored render-local camera values resolve to the same world
+ *  coordinates as at save time. */
+export function setSessionOrigin(world: readonly [number, number, number]): void {
+  state.origin = { world: [world[0], world[1], world[2]] };
+}
+
 /** Stable project origin (§37): center of the first aligned content's world
  *  bounds; identity [0,0,0] while everything is LOCAL. NOT camera-driven —
  *  rebasing is future work (§38). */
@@ -69,18 +76,25 @@ export interface DisplayResult {
   unaligned: boolean;
 }
 
-/** Decode + prepare a dataset chunk for display under the current project CRS. */
+/** Decode + prepare a dataset chunk for display under the current project CRS.
+ *  §17: a LOCAL project cannot receive transforms — compatible data displays
+ *  in source coordinates. §73: UNKNOWN datasets under a georeferenced project
+ *  are flagged `unaligned` (never silently placed at nonsense coordinates). */
 export async function displayChunk(datasetId: string): Promise<DisplayResult> {
+  appendConsole("displayChunk: reading chunk");
   const chunk = await datasetManager.readChunk(datasetId, 0);
+  appendConsole("displayChunk: chunk read");
   const sourceRef = datasetReference(datasetId);
   const projectRef = projectReference();
-  const unaligned =
-    sourceRef.kind === "unknown" && projectRef.kind !== "local";
+  const projectable = Boolean(sourceRef.projString) && Boolean(projectRef.projString);
+  const effectiveProject = projectable ? projectRef : sourceRef;
+  const unaligned = !projectable && projectRef.kind !== "local" && projectRef.kind !== "unknown";
   const prepared = prepareChunk(chunk, {
     sourceRef,
-    projectRef,
+    projectRef: effectiveProject,
     origin: renderOrigin(),
   });
+  appendConsole("displayChunk: prepared");
   ensureOriginFrom(prepared);
   state.worldBounds = unionWorldBounds([prepared.worldBounds].filter(Boolean) as never[]);
   return { prepared, unaligned };
@@ -94,6 +108,10 @@ export function showPrepared(prepared: PreparedChunk, chunk: DecodedChunk, name:
       positions: prepared.positions,
     },
     name,
+  );
+  const b = prepared.worldBounds;
+  appendConsole(
+    `world bounds — E ${b.min[0].toFixed(2)}…${b.max[0].toFixed(2)}  N ${b.min[1].toFixed(2)}…${b.max[1].toFixed(2)}  Z ${b.min[2].toFixed(2)}…${b.max[2].toFixed(2)}`,
   );
 }
 

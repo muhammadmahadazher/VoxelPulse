@@ -17,10 +17,15 @@ export interface VxpProject {
   datasets: ProjectDatasetRef[];
   layers: Layer[];
   layout: { left: number; right: number; bottom: number };
-  workspace: { type: "scene"; viewLayout: string; camera: VxpCamera | null };
+  workspace: {
+    type: "scene"; viewLayout: string; camera: VxpCamera | null;
+    /** §45: render origin used at save time — render-local camera values
+     *  resolve to the same world coordinates after reload (§69). */
+    renderOrigin?: readonly [number, number, number];
+  };
 }
 
-export function serializeProject(camera: VxpCamera | null, viewLayout: string): VxpProject {
+export function serializeProject(camera: VxpCamera | null, viewLayout: string, renderOrigin?: readonly [number, number, number]): VxpProject {
   const p = useProjectStore.getState();
   const ui = useUiStore.getState();
   return {
@@ -30,7 +35,7 @@ export function serializeProject(camera: VxpCamera | null, viewLayout: string): 
     datasets: p.datasets.map((d) => ({ ...d })),
     layers: p.layers.map((l) => ({ ...l })),
     layout: { left: ui.layout.leftWidth, right: ui.layout.rightWidth, bottom: ui.layout.bottomHeight },
-    workspace: { type: "scene", viewLayout, camera },
+    workspace: { type: "scene", viewLayout, camera, renderOrigin },
   };
 }
 
@@ -53,6 +58,7 @@ export function deserializeProject(doc: unknown): VxpProject {
       type: "scene",
       viewLayout: raw.workspace?.viewLayout ?? "single",
       camera: raw.workspace?.camera ?? null,
+      renderOrigin: raw.workspace?.renderOrigin ?? undefined,
     },
   };
 }

@@ -216,3 +216,136 @@ test("detection selection populates inspector", async ({ page }) => {
   await page.keyboard.press("Space"); // resume
   expect(hit).toBeGreaterThan(0);
 });
+
+/* ------------------------------------------------------------------------ */
+/* -------------------- Phase 3 — geospatial coordinate flows ------------- */
+
+async function consoleLines(page: import("@playwright/test").Page): Promise<string[]> {
+  return page.evaluate(() =>
+    ((window as unknown as { __vpLog?: { msg: string }[] }).__vpLog ?? []).map((l) => l.msg));
+}
+
+function parseBounds(line: string): { e0: number; e1: number; n0: number; n1: number } | null {
+  const m = /world bounds — E (-?[\d.]+)…(-?[\d.]+)  N (-?[\d.]+)…(-?[\d.]+)/.exec(line);
+  if (!m) return null;
+  return { e0: +m[1], e1: +m[2], n0: +m[3], n1: +m[4] };
+}
+
+test("CRS indicator opens the chooser and sets the project CRS (§75, §115)", async ({ page }) => {
+  await openWorkspace(page);
+  await page.getByRole("button", { name: /LOCAL CRS/ }).click();
+  await expect(page.getByText("Project Spatial Reference")).toBeVisible();
+  await page.getByPlaceholder(/Search EPSG code or name/).fill("32643");
+  await page.getByText("WGS 84 / UTM zone 43N").first().click();
+  await expect(page.getByRole("button", { name: /EPSG:32643/ })).toBeVisible();
+});
+
+test("LAS embedded CRS surfaces in the inspector with provenance (§53, §115)", async ({ page }) => {
+  await openWorkspace(page);
+  await page.locator("#vp-add-data").setInputFiles("tests/fixtures/tiny-geo.las");
+  const layers = page.getByRole("complementary", { name: "Layers" });
+  await expect(layers.getByText("tiny-geo.las")).toBeVisible({ timeout: 15000 });
+  await layers.getByText("tiny-geo.las").click();
+  const inspector = page.getByRole("complementary", { name: "Inspector" });
+  await expect(inspector.getByText("WGS 84 / UTM zone 43N")).toBeVisible();
+  await expect(inspector.getByText("EPSG:32643")).toBeVisible();
+  await expect(inspector.getByText("embedded", { exact: true })).toBeVisible();
+});
+
+test("assigning a CRS reinterprets coordinates without reprojection (§15, §115)", async ({ page }) => {
+  await openWorkspace(page);
+  await page.locator("#vp-add-data").setInputFiles("tests/fixtures/tiny.xyz");
+  const layers = page.getByRole("complementary", { name: "Layers" });
+  await expect(layers.getByText("tiny.xyz")).toBeVisible({ timeout: 15000 });
+  // coordinates are honest UNKNOWN at first
+  await layers.getByText("tiny.xyz").click();
+  await expect(page.getByRole("complementary", { name: "Inspector" }).getByText("Unknown")).toBeVisible();
+  // assign via the layer context menu
+  await layers.getByText("tiny.xyz").click({ button: "right" });
+  await page.getByRole("button", { name: "Spatial Reference…" }).click();
+  await page.getByPlaceholder(/Search EPSG code or name/).fill("32643");
+  await page.getByText("WGS 84 / UTM zone 43N").first().click();
+  const inspector = page.getByRole("complementary", { name: "Inspector" });
+  await expect(inspector.getByText("EPSG:32643")).toBeVisible();
+  await expect(inspector.getByText("user", { exact: true })).toBeVisible(); // provenance
+  const lines = await consoleLines(page);
+  expect(lines.some((l) => l.includes("coordinates unchanged"))).toBe(true);
+});
+
+test("two datasets in different CRS align in project space (§39, §115, §120)", async ({ page }) => {
+  await openWorkspace(page);
+  // project CRS = EPSG:32643
+  await page.getByRole("button", { name: /LOCAL CRS/ }).click();
+  await page.getByPlaceholder(/Search EPSG code or name/).fill("32643");
+  await page.getByText("WGS 84 / UTM zone 43N").first().click();
+  await expect(page.getByRole("button", { name: /EPSG:32643/ })).toBeVisible();
+
+  // Dataset A: UTM (embedded CRS) — identity in project space.
+  await page.locator("#vp-add-data").setInputFiles("tests/fixtures/tiny-geo.las");
+  const layers = page.getByRole("complementary", { name: "Layers" });
+  await expect(layers.getByText("tiny-geo.las")).toBeVisible({ timeout: 15000 });
+  // Dataset B: the same landmarks in WGS84 — needs assignment.
+  await page.locator("#vp-add-data").setInputFiles("tests/fixtures/lahore-4326.xyz");
+  await expect(layers.getByText("lahore-4326.xyz")).toBeVisible({ timeout: 15000 });
+  await layers.getByText("lahore-4326.xyz").click({ button: "right" });
+  await page.getByRole("button", { name: "Spatial Reference…" }).click();
+  await page.getByPlaceholder(/Search EPSG code or name/).fill("4326");
+  await page.getByText("WGS 84", { exact: false }).first().click();
+
+  const lines = await consoleLines(page);
+  const boundsLines = lines.filter((l) => l.startsWith("world bounds"));
+  const a = parseBounds(boundsLines[0]); // LAS identity in EPSG:32643
+  const b = parseBounds(boundsLines[boundsLines.length - 1]); // xyz transformed 4326→32643
+  expect(a).not.toBeNull();
+  expect(b).not.toBeNull();
+  // The fundamental Phase 3 integration test: aligned within 2 cm.
+  expect(Math.abs(a!.e0 - b!.e0)).toBeLessThan(0.02);
+  expect(Math.abs(a!.e1 - b!.e1)).toBeLessThan(0.02);
+  expect(Math.abs(a!.n0 - b!.n0)).toBeLessThan(0.02);
+  expect(Math.abs(a!.n1 - b!.n1)).toBeLessThan(0.02);
+});
+
+test("project save/reload with relink of a missing local source (§47–48, §115)", async ({ page }) => {
+  test.setTimeout(90_000);
+  await openWorkspace(page);
+  await page.locator("#vp-add-data").setInputFiles("tests/fixtures/tiny.pcd");
+  const layers = page.getByRole("complementary", { name: "Layers" });
+  await expect(layers.getByText("tiny.pcd")).toBeVisible({ timeout: 15000 });
+  // Save As with dialog handling
+  page.once("dialog", (d) => void d.accept("relink-test"));
+  const [download] = await Promise.all([
+    page.waitForEvent("download"),
+    page.keyboard.press("Control+s"),
+  ]);
+  const vxpPath = await download.path();
+  // Fresh session: no File handles, no autosave
+  await page.evaluate(() => localStorage.clear());
+  await page.goto("/?project=1");
+  await page.waitForTimeout(2500);
+  await page.locator("#vp-open-project").setInputFiles(vxpPath!);
+  await expect(layers.getByText("tiny.pcd")).toBeVisible({ timeout: 10000 });
+  // Missing source state + Locate File (Inspector shows it for the selected layer)
+  await layers.getByText("tiny.pcd").click();
+  const locate = page.getByRole("button", { name: "Locate File…" });
+  await expect(locate).toBeVisible();
+  // Real user flow: Locate opens a file chooser; pick the matching fixture.
+  const [chooser] = await Promise.all([
+    page.waitForEvent("filechooser"),
+    locate.click(),
+  ]);
+  await chooser.setFiles("tests/fixtures/tiny.pcd");
+  // PROBE: is the File object readable at all?
+  const probe = await page.evaluate(async () => {
+    const f = (document.getElementById("vp-relink") as HTMLInputElement).files?.[0];
+    if (!f) return "no file on input";
+    const t = new Promise<string>((resolve) => {
+      setTimeout(() => resolve("arrayBuffer PENDED"), 3000);
+    });
+    const r = f.arrayBuffer().then((b) => "read ok " + b.byteLength);
+    return Promise.race([r, t]);
+  });
+  // Inspector no longer shows the missing state (async relink completes)
+  await expect(locate).toHaveCount(0, { timeout: 15000 });
+  const lines = await consoleLines(page);
+  expect(lines.some((l) => l.includes("relinked tiny.pcd"))).toBe(true);
+});
