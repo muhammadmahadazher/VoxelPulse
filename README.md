@@ -105,18 +105,27 @@ lifecycle and memory budgets → renderer-facing chunk contract. Adding a
 format is one parser + one adapter + fixtures/tests — see
 [docs/development/format-adapters.md](docs/development/format-adapters.md).
 
+**Geospatial coordinate foundation** (`frontend/src/core/spatial/`): CRS-aware
+projects with high-precision local rendering. Every project has a spatial
+reference (LOCAL by default; WGS 84 / Web Mercator / all UTM zones bundled
+offline); datasets carry CRS metadata with provenance (LAS WKT VLRs read
+automatically); coordinates flow source (Float64) → project CRS →
+origin-subtracted Float32 render space, so centimetre geometry stays stable
+at UTM magnitudes. Measurement is CRS-aware (geodesic for geographic CRS).
+See [docs/geospatial/coordinate-systems.md](docs/geospatial/coordinate-systems.md).
+
 ```text
 Source ─▶ FormatAdapter ─▶ Dataset ─▶ Chunk/Resource ─▶ Worker Pool ─▶ Render Resource ─▶ Renderer
-  │                                                                          ▲
-  └── .vxp stores dataset descriptors only ──▶ Layer (project store) ────────┘
+  │                                                            │ (CRS transform, origin rebase) ▲
+  └── .vxp stores dataset descriptors + CRS ──▶ Layer ─────────┘                               │
         menu · palette · panels (React) ─▶ scoped stores ─▶ Three.js/R3F (EDL, reused GPU buffers)
         telemetry: VPF1 ws / WebWorker sim ──▶ temporal frames ────────────┘
 ```
 
 ## Roadmap
 
-- **v4 Spatial Workstation** — ✅ shell, layers, projects, palette · ✅ spatial data engine (sources, adapters, worker pool, resource budgets) · ⏳ cross-sections, measurement polish
-- **v5 GIS Foundation** — CRS (proj), vector layers, attribute table, map workspace
+- **v4 Spatial Workstation** — ✅ shell, layers, projects, palette · ✅ spatial data engine · ✅ geospatial coordinate foundation (CRS, floating origin) · ⏳ cross-sections, measurement polish
+- **v5 GIS Foundation** — vector layers, attribute table, map workspace, reprojection export
 - **v6 Massive Data** — chunked LOD streaming, LAZ/COPC, tens-of-millions+ points
 - **v7 Analysis Platform** — ground classification, DEM, clustering, jobs backend
 - **v8 Extensible Spatial OS** — plugin SDK, desktop shell (Tauri), scripting

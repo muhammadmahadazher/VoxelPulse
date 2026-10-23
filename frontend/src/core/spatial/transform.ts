@@ -74,6 +74,11 @@ export function inverseTransformPoint(
   return [out[0], out[1], point[2]];
 }
 
+function mark(name: string): void {
+  // §110: lightweight performance marks around coordinate transforms.
+  try { performance.mark(name); } catch { /* non-browser context */ }
+}
+
 /** Batch-transform interleaved XYZ positions (§29). Returns a new array of
  *  `outType` (default: matching input) or writes into `into` when given.
  *  Identity pairs copy (or pass through with `into`). */
@@ -98,6 +103,7 @@ export function transformPositions(
     return positions.slice(0, n * 3);
   }
   const out = opts?.into ?? (useF64 ? new Float64Array(n * 3) : new Float32Array(n * 3));
+  mark("vp:crs-transform:start");
   const tmp: number[] = [0, 0];
   for (let i = 0; i < n; i++) {
     tmp[0] = positions[i * 3];
@@ -107,6 +113,7 @@ export function transformPositions(
     out[i * 3 + 1] = t[1];
     out[i * 3 + 2] = positions[i * 3 + 2];
   }
+  mark("vp:crs-transform:end");
   return out;
 }
 
