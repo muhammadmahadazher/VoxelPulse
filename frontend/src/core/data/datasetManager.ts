@@ -108,6 +108,15 @@ export class DatasetManager {
     log.info(`disposed ${entry.dataset.info.name}`);
   }
 
+  /** §15: user CRS assignment — reinterpret existing coordinates under a CRS.
+   *  Coordinates are NOT changed; only the interpretive metadata updates. */
+  assignSpatialReference(id: string, info: import("./types").DatasetDescriptor["metadata"]["spatialReference"]): void {
+    const entry = this.opened.get(id);
+    if (!entry || !info) return;
+    entry.dataset.info.metadata.spatialReference = info;
+    log.info(`assigned ${info.reference.id} to ${entry.dataset.info.name} (user)`);
+  }
+
   memoryReport() {
     return resourceManager.report();
   }

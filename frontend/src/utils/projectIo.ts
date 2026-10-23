@@ -10,8 +10,10 @@ import { useUiStore } from "../stores/uiStore";
 
 export interface VxpCamera { position: [number, number, number]; target: [number, number, number] }
 export interface VxpProject {
-  formatVersion: 2;
+  formatVersion: 3;
   meta: ProjectMeta;
+  /** §45: project spatial reference, serialized as canonical id. */
+  crs: string;
   datasets: ProjectDatasetRef[];
   layers: Layer[];
   layout: { left: number; right: number; bottom: number };
@@ -22,8 +24,9 @@ export function serializeProject(camera: VxpCamera | null, viewLayout: string): 
   const p = useProjectStore.getState();
   const ui = useUiStore.getState();
   return {
-    formatVersion: 2,
+    formatVersion: 3,
     meta: p.meta,
+    crs: p.crs,
     datasets: p.datasets.map((d) => ({ ...d })),
     layers: p.layers.map((l) => ({ ...l })),
     layout: { left: ui.layout.leftWidth, right: ui.layout.rightWidth, bottom: ui.layout.bottomHeight },
@@ -31,16 +34,18 @@ export function serializeProject(camera: VxpCamera | null, viewLayout: string): 
   };
 }
 
-/** Accept v1 and v2 documents (§76, §77): v1 projects migrate by gaining an
- *  empty dataset table — inline layer metadata keeps everything usable. */
+/** Accept v1/v2/v3 documents (§46, §76–77): older projects migrate forward —
+ *  v2→v3 gains an explicit project CRS defaulting to LOCAL; v1 additionally
+ *  gains the empty dataset table. No user project may fail after an upgrade. */
 export function deserializeProject(doc: unknown): VxpProject {
   const raw = doc as Partial<Omit<VxpProject, "formatVersion">> & { formatVersion?: number };
-  if (!raw || !Array.isArray(raw.layers) || (raw.formatVersion !== 1 && raw.formatVersion !== 2)) {
-    throw new Error("not a valid VoxelPulse project (expected formatVersion 1 or 2)");
+  if (!raw || !Array.isArray(raw.layers) || (raw.formatVersion !== 1 && raw.formatVersion !== 2 && raw.formatVersion !== 3)) {
+    throw new Error("not a valid VoxelPulse project (expected formatVersion 1–3)");
   }
   return {
-    formatVersion: 2,
-    meta: { ...newProjectMeta(), ...raw.meta, formatVersion: 2 },
+    formatVersion: 3,
+    meta: { ...newProjectMeta(), ...raw.meta, formatVersion: 3 },
+    crs: typeof raw.crs === "string" ? raw.crs : "VP:LOCAL", // v1/v2 → LOCAL (§46)
     datasets: (Array.isArray(raw.datasets) ? raw.datasets : []) as ProjectDatasetRef[],
     layers: (raw.layers as Layer[]).filter((l) => typeof l?.id === "string"),
     layout: { left: 264, right: 288, bottom: 176, ...raw.layout },
@@ -78,7 +83,7 @@ export function loadAutosave(): VxpProject | null {
 export function applyProject(doc: VxpProject): { camera: VxpCamera | null; viewLayout: string } {
   const p = useProjectStore.getState();
   useProjectStore.setState({
-    open: true, meta: doc.meta, layers: doc.layers, datasets: doc.datasets,
+    open: true, meta: doc.meta, crs: doc.crs, layers: doc.layers, datasets: doc.datasets,
     dirty: false, selection: { kind: "none" }, savedRef: doc.meta.name,
   });
   useUiStore.getState().setLayout({

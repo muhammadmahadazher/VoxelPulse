@@ -50,6 +50,7 @@ export function InspectorPanel() {
   })();
   const datasetFields = (dataset?.metadata.fields ?? [])
     .map((f) => (f.semantic && f.semantic !== "custom" ? f.semantic : f.name));
+  const crsInfo = dataset?.metadata.spatialReference;
   const track = selection.kind === "track" ? frame?.objects.find((o) => o.id === selection.id) : undefined;
   const vel = selection.kind === "track" ? OBJECT_VELOCITIES[selection.id] : undefined;
 
@@ -129,6 +130,29 @@ export function InspectorPanel() {
                   their inline summary. */}
               {layer.datasetId && dataset && (
                 <>
+                  {crsInfo ? (
+                    <PropertyRow label="Spatial Reference">
+                      <span className="max-w-[150px] truncate text-right font-[var(--vp-font-mono)] text-[12px] text-[var(--vp-text-2)]"
+                        title={crsInfo.detail ?? crsInfo.reference.name}>
+                        {crsInfo.reference.id === "VP:UNKNOWN" ? "Unknown" : crsInfo.reference.name ?? crsInfo.reference.id}
+                      </span>
+                    </PropertyRow>
+                  ) : null}
+                  {crsInfo && crsInfo.reference.id !== "VP:UNKNOWN" && (
+                    <PropertyRow label="CRS">
+                      <span className="font-[var(--vp-font-mono)] text-[12px] text-[var(--vp-accent)]">{crsInfo.reference.id}</span>
+                    </PropertyRow>
+                  )}
+                  {crsInfo && (
+                    <PropertyRow label="Provenance">
+                      <span className="font-[var(--vp-font-mono)] text-[12px] text-[var(--vp-text-3)]">{crsInfo.source}</span>
+                    </PropertyRow>
+                  )}
+                  {crsInfo && crsInfo.reference.id !== "VP:UNKNOWN" && (
+                    <PropertyRow label="Units">
+                      <span className="font-[var(--vp-font-mono)] text-[12px] text-[var(--vp-text-2)]">{crsInfo.reference.horizontalUnit.name}</span>
+                    </PropertyRow>
+                  )}
                   <PropertyRow label="Format">
                     <span className="font-[var(--vp-font-mono)] text-[12px] text-[var(--vp-text-2)]">{dataset.format}</span>
                   </PropertyRow>
@@ -200,9 +224,22 @@ export function InspectorPanel() {
 
         {probe && (
           <Section title="Point Probe">
-            <PropertyRow label="X / Y / Z"><span className="font-[var(--vp-font-mono)] text-[12px] text-[var(--vp-text-2)]">{probe.x.toFixed(2)} / {probe.y.toFixed(2)} / {probe.z.toFixed(2)}</span></PropertyRow>
+            <PropertyRow label="X / Y / Z">
+              <span className="font-[var(--vp-font-mono)] text-[12px] text-[var(--vp-text-2)]">{probe.x.toFixed(2)} / {probe.y.toFixed(2)} / {probe.z.toFixed(2)}</span>
+            </PropertyRow>
             <PropertyRow label="Range"><span className="font-[var(--vp-font-mono)] text-[12px] text-[var(--vp-warning)]">{probe.range.toFixed(2)} m</span></PropertyRow>
             <PropertyRow label="Intensity"><span className="font-[var(--vp-font-mono)] text-[12px] text-[var(--vp-success)]">{Math.round(probe.intensity * 255)} / 255</span></PropertyRow>
+            <PropertyRow label="Coordinates">
+              <button
+                title="Copy coordinates"
+                onClick={() => {
+                  const text = `${probe.x.toFixed(3)}, ${probe.y.toFixed(3)}, ${probe.z.toFixed(3)}`;
+                  void navigator.clipboard?.writeText(text).catch(() => undefined);
+                }}
+                className="vp-focusable rounded px-1.5 py-0.5 font-[var(--vp-font-mono)] text-[11px] text-[var(--vp-text-3)] hover:bg-[var(--vp-hover)] hover:text-[var(--vp-accent)]">
+                copy
+              </button>
+            </PropertyRow>
           </Section>
         )}
       </div>

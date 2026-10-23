@@ -33,7 +33,7 @@ export interface ProjectDatasetRef {
 
 export interface ProjectMeta {
   name: string;
-  formatVersion: 2;
+  formatVersion: 3;
   created: string;
 }
 
@@ -46,6 +46,9 @@ export type Selection =
 interface ProjectState {
   open: boolean;
   meta: ProjectMeta;
+  /** Project spatial reference — canonical id ("VP:LOCAL" | "EPSG:32643" | …).
+   *  §9: every project has one; datasets transform into this space. */
+  crs: string;
   layers: Layer[];
   datasets: ProjectDatasetRef[];
   selection: Selection;
@@ -61,6 +64,7 @@ interface ProjectState {
   removeLayer: (id: string) => void;
   addDataset: (d: ProjectDatasetRef) => void;
   removeDataset: (id: string) => void;
+  setProjectCrs: (crs: string) => void;
   updateLayer: (id: string, patch: Partial<Layer>) => void;
   reorderLayer: (id: string, dir: -1 | 1) => void;
   select: (s: Selection) => void;
@@ -80,12 +84,13 @@ function saveRecents(r: string[]) {
 }
 
 export const newProjectMeta = (name = "Untitled Project"): ProjectMeta => ({
-  name, formatVersion: 2, created: new Date().toISOString(),
+  name, formatVersion: 3, created: new Date().toISOString(),
 });
 
 export const useProjectStore = create<ProjectState>((set, get) => ({
   open: false,
   meta: newProjectMeta(),
+  crs: "VP:LOCAL",
   layers: [],
   datasets: [],
   selection: { kind: "none" },
@@ -95,7 +100,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   autosaveRef: null,
 
   newProject: () =>
-    set({ open: true, meta: newProjectMeta(), layers: [], datasets: [], selection: { kind: "none" },
+    set({ open: true, meta: newProjectMeta(), crs: "VP:LOCAL", layers: [], datasets: [], selection: { kind: "none" },
           dirty: false, savedRef: null, autosaveRef: null }),
   closeProject: () =>
     set({ open: false, layers: [], datasets: [], selection: { kind: "none" }, dirty: false, savedRef: null }),
@@ -110,6 +115,8 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     set((s) => ({ datasets: [...s.datasets.filter((x) => x.id !== d.id), d], dirty: true })),
   removeDataset: (id) =>
     set((s) => ({ datasets: s.datasets.filter((d) => d.id !== id) })),
+  setProjectCrs: (crs) =>
+    set({ crs, dirty: true }),
   removeLayer: (id) =>
     set((s) => ({
       layers: s.layers.filter((l) => l.id !== id),

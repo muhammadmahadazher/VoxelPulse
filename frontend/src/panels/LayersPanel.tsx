@@ -3,6 +3,11 @@ import { Eye, EyeOff, Lock, Box, Radio, Camera, Crosshair, ChevronRight, Plus } 
 import { motion, AnimatePresence } from "framer-motion";
 import { useProjectStore, type Layer, type LayerType } from "../stores/projectStore";
 import { ContextMenu, type MenuItem } from "../app/ContextMenu";
+import { CrsChooser } from "../app/CrsChooser";
+import { datasetManager } from "../core/data/datasetManager";
+import { spatialReferenceRegistry } from "../core/spatial/registry";
+import { retransformDisplayedLayer } from "../utils/projectSpatial";
+import { appendConsole } from "./BottomPanel";
 import { PanelHeader, IconButton, Tooltip } from "../ui/kit";
 
 const TYPE_ICON: Record<LayerType, React.ReactNode> = {
@@ -31,10 +36,39 @@ export function LayersPanel({ onZoomTo, onAddData }: {
   const [ctx, setCtx] = useState<{ x: number; y: number; layer: Layer } | null>(null);
   const [renaming, setRenaming] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  const [crsTarget, setCrsTarget] = useState<string | null>(null); // dataset id
+
+  /** §15–16: assignment reinterprets coordinates under a CRS — it never
+   *  rewrites them. Runtime descriptor + project ref + re-display update. */
+  const assignCrs = (datasetId: string, crsId: string) => {
+    let reference;
+    try {
+      reference = spatialReferenceRegistry.resolve(crsId);
+    } catch (e) {
+      appendConsole(`assign failed — ${(e as Error).message}`);
+      return;
+    }
+    datasetManager.assignSpatialReference(datasetId, {
+      reference, source: "user", detail: "assigned via Spatial Reference chooser",
+    });
+    const p = useProjectStore.getState();
+    const ds = p.datasets.find((d) => d.id === datasetId);
+    if (ds) {
+      useProjectStore.getState().addDataset({
+        ...ds,
+        metadata: { ...ds.metadata, spatialReference: { reference, source: "user" } },
+      });
+    }
+    void retransformDisplayedLayer();
+    appendConsole(`spatial reference assigned — ${reference.id} (coordinates unchanged)`);
+  };
 
   const layerMenu = (l: Layer): MenuItem[] => [
     { id: "zoom", label: "Zoom to Layer", run: () => onZoomTo(l) },
     { id: "rename", label: "Rename…", run: () => setRenaming(l.id) },
+    ...(l.datasetId ? [{
+      id: "crs", label: "Spatial Reference…", run: () => setCrsTarget(l.datasetId!),
+    }] : []),
     { id: "up", label: "Move Up", disabled: layers[0]?.id === l.id, run: () => useProjectStore.getState().reorderLayer(l.id, -1) },
     { id: "down", label: "Move Down", separatorAfter: true, disabled: layers[layers.length - 1]?.id === l.id, run: () => useProjectStore.getState().reorderLayer(l.id, 1) },
     { id: "remove", label: "Remove Layer", danger: true, run: () => useProjectStore.getState().removeLayer(l.id) },
@@ -134,6 +168,10 @@ export function LayersPanel({ onZoomTo, onAddData }: {
         ))}
       </div>
       {ctx && <ContextMenu x={ctx.x} y={ctx.y} items={layerMenu(ctx.layer)} onClose={() => setCtx(null)} />}
+      {crsTarget && (
+        <CrsChooser mode="assign" current="VP:UNKNOWN" onClose={() => setCrsTarget(null)}
+          onAssign={(id) => assignCrs(crsTarget, id)} />
+      )}
     </div>
   );
 }

@@ -14,6 +14,7 @@ import { ErrorBoundary } from "./ui/ErrorBoundary";
 import { connectStream, setStreamPaused, loadStaticFrame, setSimScenario } from "./ws";
 import { exportScreenshot, exportPly, exportPcd } from "./utils/exporters";
 import { chunkToFrame } from "./utils/frameBridge";
+import { displayChunk, showPrepared, retransformDisplayedLayer } from "./utils/projectSpatial";
 import { importService, type ImportHooks } from "./core/data/importService";
 import { datasetManager } from "./core/data/datasetManager";
 import { LocalFileSource } from "./core/data/source/localFile";
@@ -113,9 +114,17 @@ export default function App() {
     addInputRef.current?.click();
   };
   // One import pipeline for Add Data, drag-drop and multi-file (§50, §92).
+  // Display goes through the project-spatial pipeline (§84): CRS transform →
+  // origin subtraction → Float32; LOCAL scenes take the identity path.
   const importHooks: ImportHooks = {
     createLayer: ({ descriptor, chunk, sourceLabel }) => {
-      loadStaticFrame(chunkToFrame(chunk), sourceLabel);
+      void (async () => {
+        const { prepared, unaligned } = await displayChunk(descriptor.id);
+        showPrepared(prepared, chunk, sourceLabel);
+        if (unaligned) {
+          appendConsole(`"${descriptor.name}" has UNKNOWN spatial reference — assign one via the layer menu to align it`);
+        }
+      })();
       useProjectStore.getState().addDataset({
         id: descriptor.id,
         name: descriptor.name,
@@ -129,6 +138,7 @@ export default function App() {
           formatVersion: descriptor.metadata.formatVersion,
           formatSpecific: descriptor.metadata.formatSpecific,
           createdAt: descriptor.metadata.createdAt,
+          spatialReference: descriptor.metadata.spatialReference,
         },
       });
       useProjectStore.getState().addLayer({
@@ -219,6 +229,14 @@ export default function App() {
   useEffect(() => {
     const onSaveAs = () => saveProject(true);
     document.addEventListener("vp-save-as", onSaveAs);
+    // §17, §74: project CRS changes re-transform displayed compatible layers.
+    const onSetCrs = async (e: Event) => {
+      const crsId = (e as CustomEvent<string>).detail;
+      useProjectStore.getState().setProjectCrs(crsId);
+      await retransformDisplayedLayer();
+      appendConsole(`project spatial reference — ${crsId}`);
+    };
+    document.addEventListener("vp-set-crs", onSetCrs);
     const onKey = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement) return;
       const s = useStore.getState();
@@ -249,6 +267,7 @@ export default function App() {
     return () => {
       window.removeEventListener("keydown", onKey);
       document.removeEventListener("vp-save-as", onSaveAs);
+      document.removeEventListener("vp-set-crs", onSetCrs);
     };
   }, []);
 

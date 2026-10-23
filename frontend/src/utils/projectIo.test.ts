@@ -23,7 +23,8 @@ describe("projectIo round-trip", () => {
     const doc = serializeProject(cam, "split");
 
     const restored = deserializeProject(JSON.parse(JSON.stringify(doc)));
-    expect(restored.formatVersion).toBe(2);
+    expect(restored.formatVersion).toBe(3);
+    expect(restored.crs).toBe("VP:LOCAL"); // default project CRS (§9)
     expect(restored.datasets).toHaveLength(1);
     expect(restored.datasets[0]).toMatchObject({ id: "ds-1", format: "las" });
     expect(restored.datasets[0].source).toMatchObject({ kind: "local-file" }); // §78: descriptor, not bytes
@@ -50,13 +51,41 @@ describe("projectIo round-trip", () => {
       workspace: { type: "scene", viewLayout: "single", camera: null },
     };
     const migrated = deserializeProject(JSON.parse(JSON.stringify(v1)));
-    expect(migrated.formatVersion).toBe(2);
+    expect(migrated.formatVersion).toBe(3);
+    expect(migrated.crs).toBe("VP:LOCAL");
     expect(migrated.meta.name).toBe("Phase 1.6 Project");
     expect(migrated.datasets).toEqual([]); // v1 had no dataset table
     expect(migrated.layers).toHaveLength(2);
     expect(migrated.layers[0].pointCount).toBe(25000);
     expect(migrated.layers[0].bounds?.[5]).toBe(12);
     expect(migrated.layers.every((l) => l.datasetId === undefined)).toBe(true); // synthetic
+  });
+
+  it("migrates v2 projects to v3: explicit LOCAL project CRS (§46)", () => {
+    const v2 = {
+      formatVersion: 2,
+      meta: { name: "P2 Project", formatVersion: 2, created: "2026-09-02T00:00:00.000Z" },
+      datasets: [{ id: "ds-9", name: "scan.ply", format: "ply", kind: "point-cloud",
+        source: { kind: "local-file", name: "scan.ply" }, metadata: {} }],
+      layers: [{ id: "lyr-9", name: "scan.ply", type: "pointcloud", visible: true,
+        locked: false, opacity: 1, datasetId: "ds-9", source: { kind: "file", name: "scan.ply" } }],
+      layout: { left: 264, right: 288, bottom: 128 },
+      workspace: { type: "scene", viewLayout: "single", camera: null },
+    };
+    const m = deserializeProject(JSON.parse(JSON.stringify(v2)));
+    expect(m.formatVersion).toBe(3);
+    expect(m.crs).toBe("VP:LOCAL");
+    expect(m.datasets[0].id).toBe("ds-9");
+    expect(m.layers[0].datasetId).toBe("ds-9");
+  });
+
+  it("round-trips a projected project CRS (§45)", () => {
+    useProjectStore.getState().newProject();
+    useProjectStore.getState().setProjectCrs("EPSG:32643");
+    const doc = serializeProject(null, "single");
+    const restored = deserializeProject(JSON.parse(JSON.stringify(doc)));
+    expect(restored.crs).toBe("EPSG:32643");
+    useProjectStore.getState().setProjectCrs("VP:LOCAL");
   });
 
   it("rejects foreign documents", () => {

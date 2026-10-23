@@ -12,6 +12,8 @@ import { EyeDomeLighting } from "./edl";
 import { BBox3D } from "./BBox3D";
 import { EgoFrame } from "./EgoFrame";
 import { CropGizmo } from "./CropGizmo";
+import { measurePoints } from "../core/spatial/measure";
+import { projectReference, renderOrigin } from "../utils/projectSpatial";
 
 const MAX_POINTS = 60000;
 const EMPTY_OBJECTS: never[] = [];
@@ -124,7 +126,9 @@ function PointCloud() {
   );
 }
 
-/** Dual-point laser measure: distance, ΔXYZ and slope angle. */
+/** Dual-point laser measure: distance, ΔXYZ and slope angle. §61–64, §101:
+ *  measurement math lives in the spatial service, runs on WORLD coordinates
+ *  (render + origin), and is CRS-aware — geodesic for geographic projects. */
 function Ruler() {
   const pts = useStore((s) => s.rulerPoints);
   const geo = useMemo(() => {
@@ -139,10 +143,13 @@ function Ruler() {
   p.setXYZ(0, a[0], a[2], a[1]);
   p.setXYZ(1, b[0], b[2], b[1]);
   p.needsUpdate = true;
-  const dx = a[0] - b[0], dy = a[1] - b[1], dz = a[2] - b[2];
-  const d = Math.hypot(dx, dy, dz);
-  const horiz = Math.hypot(dx, dy);
-  const slope = (Math.atan2(Math.abs(dz), Math.max(horiz, 1e-6)) * 180) / Math.PI;
+  const origin = renderOrigin().world;
+  const wa = [a[0] + origin[0], a[1] + origin[1], a[2] + origin[2]] as const;
+  const wb = [b[0] + origin[0], b[1] + origin[1], b[2] + origin[2]] as const;
+  const m = measurePoints(wa, wb, projectReference());
+  const dx = Math.abs(a[0] - b[0]), dy = Math.abs(a[1] - b[1]), dz = Math.abs(a[2] - b[2]);
+  const horiz = m.horizontal;
+  const d = Math.hypot(horiz, m.dz);
   return (
     <group>
       <lineSegments geometry={geo}>
@@ -158,7 +165,7 @@ function Ruler() {
         position={[(a[0] + b[0]) / 2, (a[2] + b[2]) / 2 + 1, (a[1] + b[1]) / 2]} zIndexRange={[10, 0]}>
         <div className="mono rounded px-2 py-0.5 text-[10px] font-bold text-amber-400"
           style={{ background: "rgba(7,8,11,0.88)", border: "1px solid #F59E0B66" }}>
-          Δ {d.toFixed(2)} m · ΔX {Math.abs(dx).toFixed(1)} ΔY {Math.abs(dy).toFixed(1)} ΔZ {Math.abs(dz).toFixed(1)} · {slope.toFixed(0)}°
+          Δ {d.toFixed(2)} m ({m.method}) · ΔX {dx.toFixed(1)} ΔY {dy.toFixed(1)} ΔZ {dz.toFixed(1)} · {m.slopeDeg.toFixed(0)}°
         </div>
       </Html>
     </group>
