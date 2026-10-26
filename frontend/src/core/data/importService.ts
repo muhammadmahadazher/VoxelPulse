@@ -7,6 +7,7 @@ import { datasetManager } from "./datasetManager";
 import { jobStore } from "./jobs/jobStore";
 import { decodeChunkData } from "./workers/client";
 import { LocalFileSource } from "./source/localFile";
+import { FORMAT_CAPABILITIES } from "./formats/capabilities";
 import { isCancelledError, toVpDataError, VpDataError } from "./errors";
 import type { DataSource } from "./source/types";
 import type { DataFormat } from "./types";
@@ -24,6 +25,9 @@ export interface ImportHooks {
   frameBounds: (bounds: { min: [number, number, number]; max: [number, number, number] }) => void;
   /** Non-blocking user-facing failure notice (§33, §90). */
   notifyError: (title: string, message: string, detail?: string) => void;
+  /** §52–54: attach the streaming runtime for hierarchical datasets — the
+   *  scheduler streams nodes; no whole-file decode exists. */
+  attachStreaming?: (ctx: { descriptor: DatasetDescriptor; source: DataSource }) => void;
 }
 
 const running = new Map<string, AbortController>();
@@ -67,6 +71,19 @@ export const importService = {
           decodeChunkData(format, buffer, { signal, priority: "interactive" }),
       });
       perfMark("vp:import:probe:end");
+
+      const hierarchical = FORMAT_CAPABILITIES[dataset.info.format]?.hierarchical === true;
+      if (hierarchical) {
+        // §52–54, §69: metadata already frames the dataset — points stream in.
+        jobStore.setStatus(job.id, "creating-layer", { message: "attaching streaming" });
+        hooks.attachStreaming?.({ descriptor: datasetManager.descriptor(dataset.id)!, source });
+        // framing is handled by attachStreaming (render-space origin known there)
+        jobStore.setStatus(job.id, "completed", {
+          progress: 1,
+          message: `${(dataset.info.metadata.pointCount ?? 0).toLocaleString()} points · streaming`,
+        });
+        return;
+      }
 
       jobStore.setStatus(job.id, "reading", {
         message: `reading ${dataset.info.metadata.pointCount ?? ""} points`.trim(),

@@ -14,6 +14,7 @@ import { EgoFrame } from "./EgoFrame";
 import { CropGizmo } from "./CropGizmo";
 import { measurePoints } from "../core/spatial/measure";
 import { projectReference, renderOrigin } from "../utils/projectSpatial";
+import { StreamingClouds } from "./StreamingClouds";
 
 const MAX_POINTS = 60000;
 const EMPTY_OBJECTS: never[] = [];
@@ -204,6 +205,7 @@ function SceneContents({ perspective = true }: { perspective?: boolean }) {
   return (
     <>
       <PointCloud />
+      <StreamingClouds />
       <EgoFrame />
       <Ruler />
       <CropGizmo />

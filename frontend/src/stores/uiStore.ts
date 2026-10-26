@@ -4,6 +4,9 @@ import { create } from "zustand";
 
 export type ThemeMode = "pro" | "presentation";
 export type ColorMode = "dark" | "light";
+
+/** §21–24: point-budget policy — hardware-neutral, measured defaults. */
+export type PerfMode = "auto" | "efficiency" | "balanced" | "quality";
 export type TimelineMode = "compact" | "expanded";
 
 export interface UiLayout {
@@ -22,6 +25,7 @@ interface UiState {
   panels: UiPanels;
   theme: ThemeMode;
   colorMode: ColorMode;
+  perfMode: PerfMode;
   maximized: boolean;
   timelineMode: TimelineMode;
   bottomTab: "timeline" | "console";
@@ -32,6 +36,7 @@ interface UiState {
   setTheme: (t: ThemeMode) => void;
   toggleTheme: () => void;
   setColorMode: (m: ColorMode) => void;
+  setPerfMode: (m: PerfMode) => void;
   toggleColorMode: () => void;
   setMaximized: (v: boolean) => void;
   toggleMaximized: () => void;
@@ -78,6 +83,7 @@ export const useUiStore = create<UiState>((set, get) => ({
   panels: initial.panels,
   theme: "pro",
   colorMode: "dark",
+  perfMode: "balanced",
   maximized: false,
   timelineMode: initial.timelineMode ?? "compact",
   bottomTab: "timeline",
@@ -98,6 +104,7 @@ export const useUiStore = create<UiState>((set, get) => ({
   setTheme: (theme) => set({ theme }),
   toggleTheme: () => set((s) => ({ theme: s.theme === "pro" ? "presentation" : "pro" })),
   setColorMode: (colorMode) => set({ colorMode }),
+  setPerfMode: (perfMode) => set({ perfMode }),
   toggleColorMode: () => set((s) => ({ colorMode: s.colorMode === "dark" ? "light" : "dark" })),
   setMaximized: (maximized) => set({ maximized }),
   toggleMaximized: () => set((s) => ({ maximized: !s.maximized })),

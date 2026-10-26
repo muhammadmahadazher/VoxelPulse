@@ -9,6 +9,7 @@ import { parseLas } from "../formats/parsers/las";
 import { parsePly } from "../formats/parsers/ply";
 import { parsePcd } from "../formats/parsers/pcd";
 import { createLogger } from "../logging";
+import { prepareNodeInPlace } from "./prepareInPlace";
 import { WorkerPool, type PoolWorker } from "./pool";
 import type { JobPriority } from "./protocol";
 
@@ -23,6 +24,10 @@ let poolBroken = false;
 
 function getPool(): WorkerPool | null {
   if (poolBroken) return null;
+  // diagnostic escape hatch: force main-thread decode/prepare
+  try {
+    if (localStorage.getItem("voxelpulse.nopool") === "1") return null;
+  } catch { /* non-DOM */ }
   if (typeof Worker === "undefined") {
     poolBroken = true; // SSR/test environment — decode in-place (§27 fallback)
     return null;
@@ -86,7 +91,7 @@ export async function decodeChunkData(
           extract: (r) => ({
             index: 0,
             pointCount: r.pointCount,
-            positions: r.positionsType === "f64" ? new Float64Array(r.positions) : new Float32Array(r.positions),
+            positions: (r.positionsType as string) === "f64" ? new Float64Array(r.positions) : new Float32Array(r.positions),
             intensity: r.intensity ? new Float32Array(r.intensity) : undefined,
             colors: r.colors ? new Uint8Array(r.colors) : undefined,
             classification: r.classification ? new Uint8Array(r.classification) : undefined,
@@ -111,5 +116,89 @@ export async function decodeChunkData(
     classification: parsed.classification,
     bounds: boundsFromPositions(parsed.positions, parsed.pointCount),
     fields: [],
+  };
+}
+export interface PreparedNode {
+  nodeId: string;
+  pointCount: number;
+  positions: Float32Array;
+  intensity: Float32Array;
+  colors?: Uint8Array;
+  classification?: Uint8Array;
+  worldBounds: { min: [number, number, number]; max: [number, number, number] };
+}
+
+export interface PrepareNodeOptions {
+  pointFormat: number;
+  pointRecordLength: number;
+  pointCount: number;
+  compressed: boolean;
+  scales: [number, number, number];
+  offsets: [number, number, number];
+  sourceProj?: string;
+  targetProj?: string;
+  origin: [number, number, number];
+}
+
+/** §36, §104: full node preparation off-main-thread — decode + CRS transform
+ *  + origin subtraction. Falls back to main-thread only when Workers are
+ *  unavailable (the decode path's existing fallback). */
+export async function prepareNodeData(
+  nodeId: string,
+  buffer: ArrayBuffer,
+  opts: PrepareNodeOptions,
+): Promise<PreparedNode> {
+  const p = getPool();
+  if (p) {
+    try {
+      return await p.run(
+        {
+          type: "prepare-node",
+          priority: "interactive",
+          payload: {
+            format: "copc",
+            buffer,
+            ...opts,
+          },
+        },
+        {
+          signal: undefined,
+          extract: (r) => ({
+            nodeId: (r as { nodeId?: string }).nodeId ?? nodeId,
+            pointCount: r.pointCount,
+            positions: new Float32Array(r.positions),
+            intensity: r.intensity ? new Float32Array(r.intensity) : new Float32Array(r.pointCount),
+            colors: r.colors ? new Uint8Array(r.colors) : undefined,
+            classification: r.classification ? new Uint8Array(r.classification) : undefined,
+            worldBounds: r.bounds,
+          }),
+        },
+      );
+    } catch (e) {
+      log.warn("worker prepare failed — falling back to main thread", e);
+    }
+  }
+  // Main-thread fallback (tests / no-Worker environments): same pipeline.
+  const data = await prepareNodeInPlace({
+    nodeId,
+    buffer,
+    pointFormat: opts.pointFormat,
+    pointRecordLength: opts.pointRecordLength,
+    pointCount: opts.pointCount,
+    compressed: opts.compressed,
+    scales: opts.scales,
+    offsets: opts.offsets,
+    sourceProj: opts.sourceProj,
+    targetProj: opts.targetProj,
+    origin: opts.origin,
+  });
+  return {
+    nodeId,
+    pointCount: data.pointCount,
+    positions: data.positions,
+    intensity: data.intensity,
+    colors: data.colors,
+    classification: data.classification,
+    worldBounds: data.worldBounds,
   };
 }

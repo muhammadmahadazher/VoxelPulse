@@ -5,6 +5,9 @@
 import { resourceManager } from "./resources/manager";
 import { formatRegistry, type Detection } from "./formats/registry";
 import { registerBuiltinAdapters } from "./formats/index";
+import { FORMAT_CAPABILITIES } from "./formats/capabilities";
+import { newDatasetId } from "./ids";
+import { VpDataError } from "./errors";
 import type { OpenedDataset, DecodedChunk } from "./formats/types";
 import type { DatasetDescriptor, DataFormat } from "./types";
 import type { DataSource } from "./source/types";
@@ -40,7 +43,9 @@ export class DatasetManager {
     }
   }
 
-  /** Probe + inspect + open a source through the registry (§50 stages). */
+  /** Probe + inspect + open a source through the registry (§50 stages).
+   *  Hierarchical formats (§53–54) skip whole-file open() — their descriptor
+   *  is registered and the streaming runtime attaches separately. */
   async openSource(source: DataSource, opts?: {
     signal?: AbortSignal;
     /** Worker decode injection — wired to the pool by bootstrap (§27). */
@@ -48,10 +53,26 @@ export class DatasetManager {
   }): Promise<{ dataset: OpenedDataset; detection: Detection }> {
     this.ensureAdapters();
     const detection = await formatRegistry.detect(source, opts?.signal);
-    const dataset = await detection.adapter.open(source, {
-      signal: opts?.signal,
-      decodeChunk: opts?.decodeChunk,
-    });
+    let dataset: OpenedDataset;
+    if (FORMAT_CAPABILITIES[detection.adapter.id]?.hierarchical) {
+      const info = await detection.adapter.inspect(source, opts?.signal);
+      dataset = {
+        id: newDatasetId(),
+        info,
+        source: source.descriptor(),
+        status: "ready",
+        chunkCount: 0,
+        readChunk: async () => {
+          throw new VpDataError("unsupported-format", "Hierarchical datasets stream node-by-node.");
+        },
+        dispose: () => { /* runtime owns resources */ },
+      };
+    } else {
+      dataset = await detection.adapter.open(source, {
+        signal: opts?.signal,
+        decodeChunk: opts?.decodeChunk,
+      });
+    }
     this.opened.set(dataset.id, { dataset, refCount: 1 });
     log.info(`opened ${dataset.info.name} (${dataset.info.format}, ${dataset.info.metadata.pointCount ?? "?"} pts)`);
     return { dataset, detection };

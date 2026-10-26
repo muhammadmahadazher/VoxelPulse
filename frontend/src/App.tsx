@@ -16,6 +16,9 @@ import { exportScreenshot, exportPly, exportPcd } from "./utils/exporters";
 import { chunkToFrame } from "./utils/frameBridge";
 import { displayChunk, showPrepared, retransformDisplayedLayer, renderOrigin, setSessionOrigin } from "./utils/projectSpatial";
 import { importService, type ImportHooks } from "./core/data/importService";
+import { CopcStreamRuntime } from "./core/streaming/runtime";
+import { streamingRegistry } from "./core/streaming/registry";
+import { spatialReferenceRegistry } from "./core/spatial/registry";
 import { decodeChunkData } from "./core/data/workers/client";
 import { datasetManager } from "./core/data/datasetManager";
 import { LocalFileSource } from "./core/data/source/localFile";
@@ -163,6 +166,48 @@ export default function App() {
         ],
       });
       appendConsole(`imported ${descriptor.name} — ${chunk.pointCount.toLocaleString()} points (${descriptor.format})`);
+    },
+    attachStreaming: ({ descriptor, source }) => {
+      void (async () => {
+        const runtime = await CopcStreamRuntime.open(descriptor.id, source, {
+          onNodeReady: () => { /* renderer reads via streamingRegistry */ },
+          onNodeEvicted: () => { /* StreamingClouds disposes geometry */ },
+        });
+        // §36: worker transforms source CRS → project CRS when both are known.
+        const srcProj = descriptor.metadata.spatialReference?.reference.projString;
+        const pcrs = useProjectStore.getState().crs;
+        let tgtProj: string | undefined;
+        if (pcrs !== "VP:LOCAL") {
+          try { tgtProj = spatialReferenceRegistry.resolve(pcrs).projString; } catch { tgtProj = undefined; }
+        }
+        const projectable = Boolean(srcProj) && Boolean(tgtProj);
+        // §37: stable render origin = dataset bounds center (metadata-only —
+        // available before any point loads, §69).
+        const b = descriptor.metadata.bounds;
+        const origin: [number, number, number] = b
+          ? [(b.min[0] + b.max[0]) / 2, (b.min[1] + b.max[1]) / 2, (b.min[2] + b.max[2]) / 2]
+          : [0, 0, 0];
+        runtime.setSpatialContext(
+          projectable ? srcProj : undefined,
+          projectable ? tgtProj : undefined,
+          origin,
+        );
+        // §21–24: point budget from the measured perf-mode mapping.
+        const mode = useUiStore.getState().perfMode;
+        const budget = mode === "efficiency" ? 500_000 : mode === "quality" ? 3_000_000 : 1_500_000;
+        runtime.setPointBudget(budget);
+        streamingRegistry.set(descriptor.id, runtime);
+        // §69: frame in RENDER space (world bounds minus the origin) — the
+        // camera lives in render coordinates.
+        const rb = descriptor.metadata.bounds;
+        if (rb) {
+          handleRef.current?.frameBounds([
+            rb.min[0] - origin[0], rb.min[1] - origin[1], rb.min[2] - origin[2],
+            rb.max[0] - origin[0], rb.max[1] - origin[1], rb.max[2] - origin[2],
+          ]);
+        }
+        appendConsole("streaming attached — " + descriptor.name + " (" + (descriptor.metadata.pointCount ?? 0).toLocaleString() + " points in file)");
+      })();
     },
     frameBounds: (b) => {
       handleRef.current?.frameBounds([b.min[0], b.min[1], b.min[2], b.max[0], b.max[1], b.max[2]]);

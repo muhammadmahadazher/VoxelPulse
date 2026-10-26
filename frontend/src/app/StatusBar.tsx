@@ -1,5 +1,7 @@
 import { useState } from "react";
+import { useSyncExternalStore } from "react";
 import { useStore } from "../store";
+import { streamingMetricsSnapshot, subscribeStreamingMetrics } from "../core/streaming/registry";
 import { useProjectStore } from "../stores/projectStore";
 import { CrsChooser } from "./CrsChooser";
 import { spatialReferenceRegistry } from "../core/spatial/registry";
@@ -16,6 +18,7 @@ export function StatusBar() {
   const fps = useStore((s) => s.fps);
   const mode = useStore((s) => s.mode);
   const crsId = useProjectStore((s) => s.crs);
+  const streaming = useSyncExternalStore(subscribeStreamingMetrics, streamingMetricsSnapshot, streamingMetricsSnapshot);
   const layers = useProjectStore((s) => s.layers);
   const selection = useProjectStore((s) => s.selection);
   const [chooserOpen, setChooserOpen] = useState(false);
@@ -61,7 +64,13 @@ export function StatusBar() {
         )}
       </div>
       <div className="flex items-center">
-        <span className={cell}>{n.toLocaleString()} pts visible</span>
+        {streaming.datasets > 0 ? (
+          <span className={`${cell} text-[var(--vp-accent)]`}>
+            COPC · {streaming.visiblePoints.toLocaleString()} pts · {streaming.visibleNodes}/{streaming.cacheNodes} nodes
+          </span>
+        ) : (
+          <span className={cell}>{n.toLocaleString()} pts visible</span>
+        )}
         <span className={cell}>{fps.toFixed(0)} FPS</span>
         <span className={`${cell} ${mode === "live" ? "text-[var(--vp-success)]" : mode === "sim" ? "text-[var(--vp-warning)]" : ""}`}>
           {mode === "live" ? "● live sensor" : mode === "sim" ? "◐ demo scene" : mode}

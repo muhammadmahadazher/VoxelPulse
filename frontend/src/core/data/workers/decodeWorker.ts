@@ -4,6 +4,7 @@
 /// <reference lib="webworker" />
 import { boundsFromPositions } from "../bounds";
 import { VpDataError, toVpDataError } from "../errors";
+import { prepareNodeInPlace, setLazPerfFactory } from "./prepareInPlace";
 import type { WorkerJob, WorkerResponse } from "./protocol";
 import { parseXyz } from "../formats/parsers/xyz";
 import { parseLas } from "../formats/parsers/las";
@@ -58,7 +59,7 @@ function decode(job: WorkerJob): void {
       id: job.id,
       pointCount: parsed.pointCount,
       positions: parsed.positions.buffer as ArrayBuffer,
-      positionsType: parsed.positions instanceof Float64Array ? "f64" : "f32",
+      positionsType: (parsed.positions instanceof Float64Array ? "f64" : "f32") as "f32" | "f64",
       intensity: parsed.intensity?.buffer as ArrayBuffer | undefined,
       colors: parsed.colors?.buffer as ArrayBuffer | undefined,
       classification: parsed.classification?.buffer as ArrayBuffer | undefined,
@@ -71,8 +72,58 @@ function decode(job: WorkerJob): void {
   }
 }
 
+/** §36, §104: full node preparation via the shared pipeline (identical math
+ *  to the main-thread fallback) — runs in this worker with a cached laz-perf
+ *  module (§103). */
+async function prepareNode(job: WorkerJob): Promise<void> {
+  const p = job.payload;
+  try {
+    setLazPerfFactory(async () => {
+      const mod = await import("laz-perf");
+      return mod.createLazPerf();
+    });
+    const data = await prepareNodeInPlace({
+      nodeId: undefined,
+      buffer: p.buffer,
+      pointFormat: p.pointFormat ?? 6,
+      pointRecordLength: p.pointRecordLength ?? 36,
+      pointCount: p.pointCount ?? 0,
+      compressed: p.compressed ?? false,
+      scales: p.scales ?? [1, 1, 1],
+      offsets: p.offsets ?? [0, 0, 0],
+      sourceProj: p.sourceProj,
+      targetProj: p.targetProj,
+      origin: p.origin ?? [0, 0, 0],
+    });
+    const transfers: Transferable[] = [
+      data.positions.buffer as ArrayBuffer,
+      data.intensity.buffer as ArrayBuffer,
+    ];
+    if (data.colors) transfers.push(data.colors.buffer as ArrayBuffer);
+    if (data.classification) transfers.push(data.classification.buffer as ArrayBuffer);
+    post({
+      type: "result",
+      id: job.id,
+      pointCount: data.pointCount,
+      positions: data.positions.buffer as ArrayBuffer,
+      positionsType: "f32",
+      nodeId: p.nodeId,
+      intensity: data.intensity.buffer as ArrayBuffer,
+      colors: data.colors?.buffer as ArrayBuffer | undefined,
+      classification: data.classification?.buffer as ArrayBuffer | undefined,
+      bounds: data.worldBounds,
+      worldBounds: data.worldBounds,
+      transfers: transfers.length,
+    }, transfers);
+  } catch (e) {
+    const err = toVpDataError(e, "decode-failed", "Failed to prepare node data");
+    post({ type: "error", id: job.id, code: err.code, message: err.message, detail: err.detail }, []);
+  }
+}
+
 self.onmessage = (e: { data: WorkerJob }) => {
   const job = e.data;
   if (job.payload.format === "cancel-notice") return; // client already rejected
-  decode(job);
+  if (job.type === "prepare-node") void prepareNode(job);
+  else decode(job);
 };

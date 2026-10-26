@@ -6,6 +6,8 @@ export default defineConfig({
   base: process.env.GITHUB_PAGES === "true" ? "/VoxelPulse/" : "/",
   plugins: [react()],
   build: { chunkSizeWarningLimit: 1600 },
+  // workers use dynamic imports (laz-perf, proj4) — ES format required
+  worker: { format: "es" },
   test: {
     // laz-perf ships a browser build (URL-located wasm) and a Node build;
     // unit tests run in Node and must use the filesystem-located wasm.

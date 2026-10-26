@@ -145,13 +145,15 @@ export function parseHierarchyPage(data: ArrayBuffer): HierarchyPage {
 
 export interface CopcHeaderInfo {
   headerLength: number;
-  pointDataOffset: number;   // u64 field, validated (§144)
+  pointDataOffset: number;   // u32 @96 (LAS 1.4 keeps this u32; EVLRs @235 are u64)
   pointFormat: number;       // 6–8 for COPC (compression bit masked)
   pointRecordLength: number;
   pointCount: number;        // u64 @247, validated
   vlrCount: number;
   evlrOffset: number;
   evlrCount: number;
+  scales: [number, number, number];
+  offsets: [number, number, number];
 }
 
 export interface CopcVlr {
@@ -227,6 +229,12 @@ export function parseCopcHeader(buf: ArrayBuffer): CopcHeaderInfo {
     vlrCount: numVlrs,
     evlrOffset,
     evlrCount: numEvlrs,
+    scales: [
+      dv.getFloat64(131, true), dv.getFloat64(139, true), dv.getFloat64(147, true),
+    ],
+    offsets: [
+      dv.getFloat64(155, true), dv.getFloat64(163, true), dv.getFloat64(171, true),
+    ],
   };
 }
 
