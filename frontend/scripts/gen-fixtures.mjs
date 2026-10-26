@@ -165,7 +165,7 @@ function patternPoints(n) {
   vlr.write("LASF_Projection", 2, "ascii");
   vlr.writeUInt16LE(2112, 18); // OGC WKT record
   vlr.write("Lahore UTM 43N fixture", 20, "ascii");
-  vlr.writeUInt16LE(wktBytes.length, 52);
+  vlr.writeUInt16LE(wktBytes.length, 20); // record length u16 at offset 20 (LAS spec)
   wktBytes.copy(vlr, 54);
 
   const n = pts.length;

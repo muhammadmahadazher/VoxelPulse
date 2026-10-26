@@ -44,4 +44,12 @@ export const FORMAT_CAPABILITIES: Record<DataFormat, FormatCapabilities> = {
     export: false,
     notes: "live VPF1 telemetry — temporal provider, not a static file",
   },
+  copc: {
+    browserImport: true,
+    randomAccess: true, // header/hierarchy/node byte ranges (§46-47)
+    streaming: true,
+    export: false,
+    hierarchical: true,
+    notes: "Cloud Optimized Point Cloud (LAZ 1.4 octree); streamed nodes, point formats 6-8; no LAZ-write",
+  },
 };

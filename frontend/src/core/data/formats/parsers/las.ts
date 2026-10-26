@@ -197,7 +197,7 @@ export function readLasVlrs(buf: ArrayBuffer): LasVlr[] {
   for (let i = 0; i < numVlrs && off + 54 <= end; i++) {
     const userId = decoder.decode(new Uint8Array(buf, off + 2, 16)).replace(/\0[\s\S]*$/, "").trim();
     const recordId = dv.getUint16(off + 18, true);
-    const dataLen = dv.getUint16(off + 52, true);
+    const dataLen = dv.getUint16(off + 20, true); // record length u16 at offset 20 (spec)
     const dataStart = off + 54;
     if (dataStart + dataLen > end) break;
     vlrs.push({ userId, recordId, data: new Uint8Array(buf.slice(dataStart, dataStart + dataLen)) });

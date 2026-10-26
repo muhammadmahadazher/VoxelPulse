@@ -4,6 +4,7 @@ import { lasAdapter } from "./las";
 import { plyAdapter } from "./ply";
 import { pcdAdapter } from "./pcd";
 import { XyzAdapter } from "./xyz";
+import { copcAdapter } from "./copc/adapter";
 
 let registered = false;
 
@@ -14,5 +15,6 @@ export function registerBuiltinAdapters(): void {
   formatRegistry.register(plyAdapter);
   formatRegistry.register(pcdAdapter);
   formatRegistry.register(new XyzAdapter());
+  formatRegistry.register(copcAdapter);
   registered = true;
 }

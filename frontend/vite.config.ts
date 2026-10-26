@@ -6,6 +6,13 @@ export default defineConfig({
   base: process.env.GITHUB_PAGES === "true" ? "/VoxelPulse/" : "/",
   plugins: [react()],
   build: { chunkSizeWarningLimit: 1600 },
+  test: {
+    // laz-perf ships a browser build (URL-located wasm) and a Node build;
+    // unit tests run in Node and must use the filesystem-located wasm.
+    alias: {
+      "laz-perf": "laz-perf/lib/node/index.js",
+    },
+  },
   server: {
     port: 5173,
     proxy: {

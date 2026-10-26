@@ -3,7 +3,8 @@
 import type { DatasetId, ChunkId } from "./ids";
 import type { DatasetMetadata } from "./metadata";
 
-export type DataFormat = "las" | "ply" | "pcd" | "xyz" | "generated" | "vpf1-stream";
+export type DataFormat =
+  | "las" | "ply" | "pcd" | "xyz" | "generated" | "vpf1-stream" | "copc";
 
 export type DatasetKind = "point-cloud" | "sensor-stream";
 
@@ -54,5 +55,8 @@ export interface FormatCapabilities {
   randomAccess: boolean;
   streaming: boolean;
   export: boolean;
+  /** §53–54: dataset exposes a spatial hierarchy (COPC octree) streamed
+   *  node-by-node rather than decoded whole. */
+  hierarchical?: boolean;
   notes?: string;
 }
