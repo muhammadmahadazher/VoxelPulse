@@ -181,6 +181,34 @@ export default function App() {
       });
       appendConsole(`imported ${descriptor.name} — ${chunk.pointCount.toLocaleString()} points (${descriptor.format})`);
     },
+    createStreamingLayer: ({ descriptor, sourceLabel }) => {
+      // §69: metadata-only layer — points stream in progressively.
+      useProjectStore.getState().addDataset({
+        id: descriptor.id,
+        name: descriptor.name,
+        format: descriptor.format,
+        kind: descriptor.kind,
+        source: descriptor.source as Record<string, unknown>,
+        metadata: {
+          pointCount: descriptor.metadata.pointCount,
+          bounds: descriptor.metadata.bounds,
+          fields: descriptor.metadata.fields,
+          formatVersion: descriptor.metadata.formatVersion,
+          formatSpecific: descriptor.metadata.formatSpecific,
+          createdAt: descriptor.metadata.createdAt,
+          spatialReference: descriptor.metadata.spatialReference,
+        },
+      });
+      const b = descriptor.metadata.bounds;
+      useProjectStore.getState().addLayer({
+        id: nextLayerId(), name: descriptor.name, type: "pointcloud", visible: true,
+        locked: false, opacity: 1, datasetId: descriptor.id,
+        source: { kind: "file", name: sourceLabel },
+        pointCount: descriptor.metadata.pointCount,
+        bounds: b ? [b.min[0], b.min[1], b.min[2], b.max[0], b.max[1], b.max[2]] : undefined,
+      });
+      appendConsole("imported " + descriptor.name + " — " + (descriptor.metadata.pointCount ?? 0).toLocaleString() + " points (" + descriptor.format + ", streaming)");
+    },
     attachStreaming: ({ descriptor, source }) => {
       void (async () => {
         appendConsole("streaming: opening hierarchy for " + descriptor.name);
@@ -269,6 +297,7 @@ export default function App() {
         const stillReferenced = s.layers.some((n) => n.datasetId === l.datasetId);
         if (!stillReferenced) {
           datasetManager.releaseRef(l.datasetId);
+          streamingRegistry.remove(l.datasetId); // §138: abort + dispose streaming
           appendConsole(`dataset ${l.datasetId} released`);
         }
       }

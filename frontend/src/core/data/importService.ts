@@ -28,6 +28,9 @@ export interface ImportHooks {
   /** §52–54: attach the streaming runtime for hierarchical datasets — the
    *  scheduler streams nodes; no whole-file decode exists. */
   attachStreaming?: (ctx: { descriptor: DatasetDescriptor; source: DataSource }) => void;
+  /** Layer creation for hierarchical imports (no decoded chunk exists yet —
+   *  metadata-only, §69). */
+  createStreamingLayer: (ctx: { descriptor: DatasetDescriptor; sourceLabel: string }) => void;
 }
 
 const running = new Map<string, AbortController>();
@@ -76,7 +79,9 @@ export const importService = {
       if (hierarchical) {
         // §52–54, §69: metadata already frames the dataset — points stream in.
         jobStore.setStatus(job.id, "creating-layer", { message: "attaching streaming" });
-        hooks.attachStreaming?.({ descriptor: datasetManager.descriptor(dataset.id)!, source });
+        const desc = datasetManager.descriptor(dataset.id)!;
+        hooks.createStreamingLayer({ descriptor: desc, sourceLabel: label });
+        hooks.attachStreaming?.({ descriptor: desc, source });
         // framing is handled by attachStreaming (render-space origin known there)
         jobStore.setStatus(job.id, "completed", {
           progress: 1,
