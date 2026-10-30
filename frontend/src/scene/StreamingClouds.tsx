@@ -19,6 +19,10 @@ export function StreamingClouds() {
   const scene = useThree((s) => s.scene);
 
   useEffect(() => {
+    // §73 dev diagnostics: renderer bridge probe
+    if (typeof window !== "undefined") {
+      (window as unknown as { __vpStreamGroup?: THREE.Group }).__vpStreamGroup = groupRef.current;
+    }
     const group = groupRef.current;
     return () => {
       // dispose every node geometry on unmount; material disposed separately
@@ -67,6 +71,18 @@ export function StreamingClouds() {
     mat.visible = st.showPoints;
 
     const cam = camera as THREE.PerspectiveCamera;
+    // §97–98: adapt the far plane to the streamed scene scale — the Phase 1
+    // default (500) cannot contain city-scale render bounds on iGPU.
+    for (const rt of runtimes) {
+      const b = rt.rootRenderBounds();
+      if (!b) continue;
+      const diag = Math.hypot(b.max[0] - b.min[0], b.max[1] - b.min[1], b.max[2] - b.min[2]);
+      const needed = Math.max(diag * 6, 2000);
+      if (cam.far < needed) {
+        cam.far = needed;
+        cam.updateProjectionMatrix();
+      }
+    }
     const viewProj = new THREE.Matrix4()
       .multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse);
     const viewProjArr = [...viewProj.elements];
@@ -76,13 +92,16 @@ export function StreamingClouds() {
     for (const rt of runtimes) {
       // drive the scheduler at ~10 Hz (not every frame — §25/§35)
       if (runUpdate) {
-        (rt as unknown as { lastFrameDebug?: unknown }).lastFrameDebug = {
-          camPos, vpTop: viewProjArr.slice(12, 16), fov: cam.fov, tick: frameTick.current,
-        };
         void rt.update(
           { position: camPos, fovYRadians: (cam.fov * Math.PI) / 180, aspect: cam.aspect, viewportHeight: window.innerHeight },
           viewProjArr,
-        ).catch((e) => { console.error("[vp:streaming] update failed:", e?.message ?? e); });
+        ).then((m) => {
+          try {
+            if (localStorage.getItem("voxelpulse.debug") === "debug") {
+              console.info("[vp:streaming] cam", camPos.map((v) => v.toFixed(0)).join(","), "→ pts", m.visiblePoints, "queued", m.queued, "cache", m.cacheNodes);
+            }
+          } catch { /* noop */ }
+        }).catch((e) => { console.error("[vp:streaming] update failed:", e?.message ?? e); });
       }
       // reflect ready/evicted nodes (imperative — no React)
       const want = new Set<string>();

@@ -40,7 +40,9 @@ export const copcAdapter: FormatAdapter = {
       if (!infoVlr) throw new VpDataError("invalid-data", "Missing COPC info VLR.");
       const info = parseCopcInfo(head.slice(infoVlr.dataOffset, infoVlr.dataOffset + 160));
 
-      // CRS: LASF_Projection WKT VLR (same handling as LAS, §13/§53).
+      // CRS: LASF_Projection WKT VLR (same handling as LAS, §13/§53). A CRS
+      // that fails to resolve must NOT fail the import (§93) — degrade to
+      // UNKNOWN with the technical detail attached.
       const wktVlr = findVlr(vlrs, "LASF_Projection", 2112);
       let spatialReference;
       if (wktVlr && wktVlr.dataLength > 1) {
@@ -48,17 +50,24 @@ export const copcAdapter: FormatAdapter = {
           head.slice(wktVlr.dataOffset, wktVlr.dataOffset + wktVlr.dataLength),
         ).replace(/\0[\s\S]*$/, "").trim();
         const epsg = epsgFromWkt(wkt);
-        if (epsg) {
+        try {
+          if (epsg) {
+            spatialReference = {
+              reference: spatialReferenceRegistry.resolve(`EPSG:${epsg}`),
+              source: "embedded" as const,
+              detail: `COPC WKT VLR → EPSG:${epsg}`,
+            };
+          } else if (wkt) {
+            spatialReference = {
+              reference: spatialReferenceRegistry.resolveDefinition(wkt),
+              source: "embedded" as const,
+              detail: "COPC WKT VLR (custom definition)",
+            };
+          }
+        } catch (crsError) {
           spatialReference = {
-            reference: spatialReferenceRegistry.resolve(`EPSG:${epsg}`),
-            source: "embedded" as const,
-            detail: `COPC WKT VLR → EPSG:${epsg}`,
-          };
-        } else if (wkt) {
-          spatialReference = {
-            reference: spatialReferenceRegistry.resolveDefinition(wkt),
-            source: "embedded" as const,
-            detail: "COPC WKT VLR (custom definition)",
+            reference: UNKNOWN_REFERENCE, source: "embedded" as const,
+            detail: `CRS could not be resolved: ${(crsError as Error).message.slice(0, 120)}`,
           };
         }
       }

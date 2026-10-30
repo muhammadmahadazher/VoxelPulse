@@ -151,13 +151,15 @@ export async function prepareNodeData(
   const p = getPool();
   if (p) {
     try {
+      // The pool transfers the payload buffer (§26) — hand it a copy so the
+      // caller's buffer survives for the main-thread fallback below.
       return await p.run(
         {
           type: "prepare-node",
           priority: "interactive",
           payload: {
             format: "copc",
-            buffer,
+            buffer: buffer.slice(0),
             ...opts,
           },
         },

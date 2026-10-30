@@ -88,8 +88,10 @@ export class CopcHierarchy {
 
   /** Ensure the hierarchy PAGE that describes `key`'s children is loaded
    *  (§14). The root page loads on first use; child pages load on demand.
-   *  Deduplicated in-flight (§30). */
+   *  Deduplicated in-flight (§30). A key whose entry is already known needs
+   *  no load — its children derive directly from `entries`. */
   async ensureLoaded(key: VoxelKey, signal?: AbortSignal): Promise<void> {
+    if (this.entries.has(keyId(key))) return; // entry known — children derivable
     const pageKey = this.pageOwnerKey(key);
     if (!pageKey || this.loadedPages.has(pageKey)) return;
     const inFlight = this.pagesLoading.get(pageKey);
@@ -124,15 +126,14 @@ export class CopcHierarchy {
    *  nearest loaded ancestor references. For the root, the info VLR. */
   private pageOwnerKey(key: VoxelKey): string | null {
     if (this.loadedPages.has(keyId(key))) return keyId(key);
-    // Walk up: the first ancestor (or root) whose page is/should be loaded.
+    // Walk up: the first ancestor that is a PAGE CONTAINER (pointCount −1)
+    // or the root. Data nodes (pointCount ≥ 0) are not page owners.
     let k: VoxelKey = { ...key };
     while (k.level > 0) {
       k = parentKey(k);
-      if (k.level === 0 || this.loadedPages.has(keyId(k)) || this.entries.has(keyId(k))) {
-        return k.level === 0 && !this.loadedPages.has("0-0-0-0") && !this.entries.has("0-0-0-0")
-          ? "0-0-0-0"
-          : keyId(k);
-      }
+      const e = this.entries.get(keyId(k));
+      if (e && e.pointCount === -1) return keyId(k);
+      if (k.level === 0) return "0-0-0-0";
     }
     return "0-0-0-0";
   }
@@ -152,16 +153,68 @@ export class CopcHierarchy {
     this.loadedPages.add(keyId(key));
   }
 
-  /** Build the children list for a node once its subtree entries are known:
-   *  the 8 possible child keys filtered by hierarchy presence. */
+  /** Build the children list for a node once its subtree entries are known.
+   *  Real COPC octrees SKIP levels — per octant, adopt the nearest deeper
+   *  descendant when the direct level+1 child is absent (bounded scan §100).
+   *  Bounds derive from each key, so adopted children cull correctly. */
   discoverChildren(key: VoxelKey): VoxelKey[] {
     const kids: VoxelKey[] = [];
-    for (const dx of [0, 1]) for (const dy of [0, 1]) for (const dz of [0, 1]) {
-      const ck: VoxelKey = { level: key.level + 1, x: key.x * 2 + dx, y: key.y * 2 + dy, z: key.z * 2 + dz };
-      if (this.entries.has(keyId(ck))) kids.push(ck);
+    const seen = new Set<string>();
+    let octant = 0;
+    for (const dx of [0, 1]) {
+      for (const dy of [0, 1]) {
+        for (const dz of [0, 1]) {
+          octant++;
+          const direct: VoxelKey = {
+            level: key.level + 1, x: key.x * 2 + dx, y: key.y * 2 + dy, z: key.z * 2 + dz,
+          };
+          if (this.entries.has(keyId(direct))) {
+            if (!seen.has(keyId(direct))) { seen.add(keyId(direct)); kids.push(direct); }
+            continue;
+          }
+          // nearest deeper descendant in this octant
+          for (let delta = 2; delta <= 6; delta++) {
+            const found: VoxelKey[] = [];
+            for (const [id, e] of this.entries) {
+              if (e.pointCount <= 0) continue;
+              const k = this.parseId(id);
+              if (k.level !== key.level + delta) continue;
+              if (!this.isAncestor(key, k)) continue;
+              const ox = (k.x >> (delta - 1)) & 1;
+              const oy = (k.y >> (delta - 1)) & 1;
+              const oz = (k.z >> (delta - 1)) & 1;
+              if ((ox * 4 + oy * 2 + oz) !== octant - 1) continue;
+              found.push(k);
+            }
+            for (const k of found) {
+              if (!seen.has(keyId(k))) { seen.add(keyId(k)); kids.push(k); }
+            }
+            if (found.length) break;
+          }
+        }
+      }
     }
     this.childKeys.set(keyId(key), kids);
     return kids;
+  }
+
+  private parseId(id: string): VoxelKey {
+    const [level, x, y, z] = id.split("-").map(Number);
+    return { level, x, y, z };
+  }
+
+  /** True when  contains  (key math: shared high bits). */
+  private isAncestor(ancestor: VoxelKey, k: VoxelKey): boolean {
+    const delta = k.level - ancestor.level;
+    if (delta <= 0) return false;
+    const shift = 32 - delta; // avoid sign issues via multiplication instead
+    void shift;
+    const div = 2 ** delta;
+    return (
+      Math.floor(k.x / div) === ancestor.x &&
+      Math.floor(k.y / div) === ancestor.y &&
+      Math.floor(k.z / div) === ancestor.z
+    );
   }
 
   /** Read one node's point data (compressed or raw per compressed_flag). */

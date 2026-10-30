@@ -183,10 +183,14 @@ export function schedule(input: SchedulerInput): SchedulerResult {
         budget -= node.pointCount;
         renderedPoints += node.pointCount;
         render.push(keyId(node.key));
+        // §14: a rendered leaf whose subtree is not yet discovered must keep
+        // asking for its hierarchy page — refinement happens after.
+        if (node.children.length === 0 && node.key.level < opts.maxDepth) {
+          pageRequests.push(node.key);
+        }
         return { covered: false, points: node.pointCount };
       }
-      // budget exhausted — node stays coarse-visible only if partially fits?
-      // §132: stability over density; skip rendering, mark covered to stop.
+      // budget exhausted — §132: stability over density; stop refining here.
       return { covered: true, points: 0 };
     }
 

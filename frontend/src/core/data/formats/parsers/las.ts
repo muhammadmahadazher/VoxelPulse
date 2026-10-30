@@ -219,8 +219,11 @@ export function lasProjectionWkt(buf: ArrayBuffer): string | null {
   return null;
 }
 
-/** EPSG code embedded in a WKT1 AUTHORITY clause, if any. */
+/** EPSG code embedded in a WKT1 AUTHORITY clause, if any. WKT nests
+ *  AUTHORITY clauses (ellipsoid, datum, CRS) — the CRS-level authority is
+ *  the LAST one, so scanning must not stop at the first (e.g. GRS 1980 =
+ *  EPSG:7019 inside a UTM WKT would otherwise win). */
 export function epsgFromWkt(wkt: string): string | null {
-  const m = wkt.match(/AUTHORITY\["EPSG","(\d{4,5})"\]/i);
-  return m ? m[1] : null;
+  const matches = [...wkt.matchAll(/AUTHORITY\["EPSG","(\d{4,5})"\]/gi)];
+  return matches.length ? matches[matches.length - 1][1] : null;
 }

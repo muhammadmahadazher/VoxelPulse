@@ -45,7 +45,17 @@ export function setLazPerfFactory(create: () => Promise<unknown>): void {
 async function getLazPerf(): Promise<LazPerfModule> {
   if (!lazPerfModule) {
     const mod = await import("laz-perf");
-    lazPerfModule = mod.createLazPerf() as Promise<LazPerfModule>;
+    // Browser/worker: the Emscripten scriptDirectory resolves the wasm
+    // through Vite's dep pre-bundle to index.html ("expected magic word")
+    // — hand it the real asset URL instead (§5 dependency note).
+    let opts: { locateFile: (f: string) => string } | undefined;
+    if (typeof process === "undefined" || !process.versions?.node) {
+      try {
+        const u = await import("laz-perf/lib/laz-perf.wasm?url");
+        opts = { locateFile: () => u.default };
+      } catch { /* fall back to scriptDirectory */ }
+    }
+    lazPerfModule = mod.createLazPerf(opts as never) as Promise<LazPerfModule>;
   }
   return lazPerfModule;
 }

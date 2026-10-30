@@ -22,6 +22,7 @@ import { spatialReferenceRegistry } from "./core/spatial/registry";
 import { decodeChunkData } from "./core/data/workers/client";
 import { datasetManager } from "./core/data/datasetManager";
 import { LocalFileSource } from "./core/data/source/localFile";
+import { UrlSource } from "./core/data/source/url";
 import {
   serializeProject, deserializeProject, downloadProject, saveAutosave, applyProject,
 } from "./utils/projectIo";
@@ -127,6 +128,19 @@ export default function App() {
   const addData = () => {
     addInputRef.current?.click();
   };
+
+  /** §111: Open URL — remote COPC streams over HTTP range requests (§112:
+   *  plain browser fetch, CORS-respecting; §46/§96-97: structured errors). */
+  const openUrl = () => {
+    const url = window.prompt("Open remote dataset URL (COPC over HTTP):", "https://");
+    if (!url || url === "https://") return;
+    if (!/^https?:\/\//i.test(url)) {
+      setNotice({ text: "Invalid URL", detail: "Only http(s) URLs are supported." });
+      return;
+    }
+    if (!useProjectStore.getState().open) useProjectStore.getState().newProject();
+    void importService.importSource(new UrlSource(url), importHooks);
+  };
   // One import pipeline for Add Data, drag-drop and multi-file (§50, §92).
   // Display goes through the project-spatial pipeline (§84): CRS transform →
   // origin subtraction → Float32; LOCAL scenes take the identity path.
@@ -169,6 +183,7 @@ export default function App() {
     },
     attachStreaming: ({ descriptor, source }) => {
       void (async () => {
+        appendConsole("streaming: opening hierarchy for " + descriptor.name);
         const runtime = await CopcStreamRuntime.open(descriptor.id, source, {
           onNodeReady: () => { /* renderer reads via streamingRegistry */ },
           onNodeEvicted: () => { /* StreamingClouds disposes geometry */ },
@@ -207,7 +222,10 @@ export default function App() {
           ]);
         }
         appendConsole("streaming attached — " + descriptor.name + " (" + (descriptor.metadata.pointCount ?? 0).toLocaleString() + " points in file)");
-      })();
+      })().catch((e) => {
+        appendConsole("streaming FAILED — " + (e as Error).message);
+        setNotice({ text: "Could not attach streaming for " + descriptor.name, detail: (e as Error).message });
+      });
     },
     frameBounds: (b) => {
       handleRef.current?.frameBounds([b.min[0], b.min[1], b.min[2], b.max[0], b.max[1], b.max[2]]);
@@ -337,6 +355,7 @@ export default function App() {
         { id: "save", label: "Save", shortcut: "⌘S", run: () => saveProject(false), disabled: !projectOpen },
         { id: "saveAs", label: "Save As…", shortcut: "⇧⌘S", separatorAfter: true, run: () => saveProject(true), disabled: !projectOpen },
         { id: "add", label: "Add Point Cloud…", run: addData },
+        { id: "addUrl", label: "Open URL…", run: openUrl },
       ],
     },
     {

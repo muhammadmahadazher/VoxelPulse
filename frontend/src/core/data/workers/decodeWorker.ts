@@ -4,7 +4,7 @@
 /// <reference lib="webworker" />
 import { boundsFromPositions } from "../bounds";
 import { VpDataError, toVpDataError } from "../errors";
-import { prepareNodeInPlace, setLazPerfFactory } from "./prepareInPlace";
+import { prepareNodeInPlace } from "./prepareInPlace";
 import type { WorkerJob, WorkerResponse } from "./protocol";
 import { parseXyz } from "../formats/parsers/xyz";
 import { parseLas } from "../formats/parsers/las";
@@ -78,10 +78,6 @@ function decode(job: WorkerJob): void {
 async function prepareNode(job: WorkerJob): Promise<void> {
   const p = job.payload;
   try {
-    setLazPerfFactory(async () => {
-      const mod = await import("laz-perf");
-      return mod.createLazPerf();
-    });
     const data = await prepareNodeInPlace({
       nodeId: undefined,
       buffer: p.buffer,

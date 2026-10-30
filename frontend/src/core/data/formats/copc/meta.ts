@@ -147,6 +147,7 @@ export interface CopcHeaderInfo {
   headerLength: number;
   pointDataOffset: number;   // u32 @96 (LAS 1.4 keeps this u32; EVLRs @235 are u64)
   pointFormat: number;       // 6–8 for COPC (compression bit masked)
+  compressed: boolean;       // 0x80 bit of the raw format byte (LAZ 1.4)
   pointRecordLength: number;
   pointCount: number;        // u64 @247, validated
   vlrCount: number;
@@ -215,6 +216,7 @@ export function parseCopcHeader(buf: ArrayBuffer): CopcHeaderInfo {
   const pointDataOffset = u64asNumber(dv, 96, "point data offset");
   const rawFormat = dv.getUint8(104);
   const pointFormat = rawFormat & 0x3f; // mask compression bits (LAZ 1.4: 0x80; legacy 0x40)
+  const compressed = (rawFormat & 0x80) !== 0;
   const pointRecordLength = dv.getUint16(105, true);
   const pointCount = u64asNumber(dv, 247, "point count");
   const numVlrs = dv.getUint32(100, true); // num VLRs u32 at offset 100
@@ -224,6 +226,7 @@ export function parseCopcHeader(buf: ArrayBuffer): CopcHeaderInfo {
     headerLength,
     pointDataOffset,
     pointFormat,
+    compressed,
     pointRecordLength,
     pointCount,
     vlrCount: numVlrs,

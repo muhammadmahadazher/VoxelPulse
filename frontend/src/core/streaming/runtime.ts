@@ -246,8 +246,12 @@ export class CopcStreamRuntime {
       entry.state = "decoding";
       this.metrics.bytesFetched += bytes.byteLength;
       this.metrics.rangeRequests++;
-      const compressed = this.hierarchy.header.pointFormat > 32; // 0x80 compression bit
-      const prepared = await prepareNodeData(id, bytes, {
+      // §40/§94: keep the compressed bytes (bounded cache) and hand the
+      // worker its OWN copy — the transfer detaches whatever is passed, and
+      // the cached bytes must survive for retries/main-thread fallback.
+      const workerBytes = bytes.slice(0);
+      const compressed = this.hierarchy.header.compressed;
+      const prepared = await prepareNodeData(id, workerBytes, {
         pointFormat: this.hierarchy.header.pointFormat & 0x3f,
         pointRecordLength: this.hierarchy.header.pointRecordLength,
         pointCount: entry.node.pointCount,
@@ -320,6 +324,16 @@ export class CopcStreamRuntime {
 
   get metricsReadonly(): StreamingMetrics {
     return this.metrics;
+  }
+
+  /** Render-space root bounds (world minus origin) for camera fitting. */
+  rootRenderBounds(): { min: [number, number, number]; max: [number, number, number] } | null {
+    const b = this.hierarchy.rootBounds;
+    const [ox, oy, oz] = this.origin;
+    return {
+      min: [b.min[0] - ox, b.min[1] - oy, b.min[2] - oz],
+      max: [b.max[0] - ox, b.max[1] - oy, b.max[2] - oz],
+    };
   }
 
   /** §55: renderer bridge — ready nodes with prepared GPU data. */
