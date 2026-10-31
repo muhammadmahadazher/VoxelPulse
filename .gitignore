@@ -18,3 +18,4 @@ Thumbs.db
 # Project
 .mimosa/
 *.log
+frontend/tsconfig.tsbuildinfo
