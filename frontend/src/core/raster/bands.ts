@@ -5,12 +5,13 @@
  *  nodata masks, and Uint8…Float64 sample types (§26: scientific values are
  *  never quantized into the analysis path). */
 import type { SampleType } from "./model";
+import { hillshadeTile } from "./hillshade";
 
 export type RawSamples =
   | Uint8Array | Int8Array | Uint16Array | Int16Array
   | Uint32Array | Int32Array | Float32Array | Float64Array;
 
-export type RasterStyleMode = "auto" | "rgb" | "grayscale" | "pseudocolor";
+export type RasterStyleMode = "auto" | "rgb" | "grayscale" | "pseudocolor" | "hillshade";
 
 export interface RasterStyle {
   mode: RasterStyleMode;
@@ -23,6 +24,8 @@ export interface RasterStyle {
   /** Data alpha (RGBA band) × this → final opacity is applied by the
    *  renderer material; packing bakes only data-derived alpha. */
   nodataTransparent: boolean;
+  /** CP7 hillshade sun geometry (mode "hillshade"). */
+  sun?: { azimuth: number; elevation: number };
 }
 
 export const DEFAULT_RASTER_STYLE: RasterStyle = {
@@ -43,6 +46,9 @@ export interface PackInput {
   /** Per-band nodata values (index = band). */
   nodata?: Array<number | undefined>;
   style: RasterStyle;
+  /** CP7: texel spacing in metres for the hillshade gradient. */
+  spacingX?: number;
+  spacingY?: number;
 }
 
 /** Pack one tile's raw samples into an RGBA display buffer (0..255).
@@ -72,6 +78,30 @@ export function packTileRgba(input: PackInput): Uint8ClampedArray | null {
       }
     : null;
 
+  // CP7 hillshade path: whole-tile gradient shading, then direct RGBA write
+  if (mode === "hillshade") {
+    const shade = hillshadeTile(raw, stride, height, samples, {
+      azimuth: style.sun?.azimuth ?? 315,
+      elevation: style.sun?.elevation ?? 45,
+      spacingX: input.spacingX || 1,
+      spacingY: input.spacingY || 1,
+    }, nodata?.[0]);
+    if (!shade) return null;
+    const nodataV = nodata?.[0];
+    for (let r = 0; r < height; r++) {
+      for (let c = 0; c < width; c++) {
+        const base = (r * stride + c) * samples;
+        const v = Number(raw[base]);
+        const o = (r * width + c) * 4;
+        const s = shade[r * stride + c];
+        const g = Math.round(s * 255);
+        out[o] = g; out[o + 1] = g; out[o + 2] = g;
+        out[o + 3] = nodataV !== undefined && v === nodataV && style.nodataTransparent ? 0 : 255;
+      }
+    }
+    return out;
+  }
+
   const values: number[] = new Array(bandCount);
   let o = 0;
   for (let row = 0; row < height; row++) {
@@ -90,10 +120,10 @@ export function packTileRgba(input: PackInput): Uint8ClampedArray | null {
           // RGBA: band 3 carries data alpha (× bit depth)
           a = Math.round((values[3] as number) * (255 / (bitMax(sampleType) || 255)));
         }
-      } else if (mode === "grayscale") {
-        const v = stretch(values[0]);
-        rr = gg = bb = v;
-      } else {
+    } else if (mode === "grayscale") {
+      const v = stretch(values[0]);
+      rr = gg = bb = v;
+    } else {
         // pseudocolor: normalized band 0 through the perceptual ramp
         const t = stretch(values[0]);
         const idx = Math.min(TURBO.length - 1, Math.max(0, Math.round(t * (TURBO.length - 1))));

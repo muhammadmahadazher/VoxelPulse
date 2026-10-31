@@ -188,10 +188,30 @@ export function InspectorPanel() {
                             <option value="rgb">rgb</option>
                             <option value="grayscale">grayscale</option>
                             <option value="pseudocolor">pseudocolor</option>
+                            <option value="hillshade">hillshade</option>
                           </select>
                         );
                       })()}
                     </PropertyRow>
+                    {(() => {
+                      const rt = layer.datasetId ? rasterRegistry.get(layer.datasetId) : undefined;
+                      if (!rt || rt.style.mode !== "hillshade") return null;
+                      const sun = rt.style.sun ?? { azimuth: 315, elevation: 45 };
+                      return (
+                        <>
+                          <PropertyRow label="Sun azimuth">
+                            <Stepper value={sun.azimuth} step={15} min={0} max={359}
+                              onChange={(v) => { rt.setStyle({ sun: { ...sun, azimuth: ((v % 360) + 360) % 360 } }); setStyleTick((n) => n + 1); }}
+                              format={(v) => `${Math.round(v)}°`} />
+                          </PropertyRow>
+                          <PropertyRow label="Sun elevation">
+                            <Stepper value={sun.elevation} step={5} min={5} max={85}
+                              onChange={(v) => { rt.setStyle({ sun: { ...sun, elevation: v } }); setStyleTick((n) => n + 1); }}
+                              format={(v) => `${Math.round(v)}°`} />
+                          </PropertyRow>
+                        </>
+                      );
+                    })()}
                     <StyleStatsRow key={styleTick} datasetId={layer.datasetId} />
                     <PropertyRow label="3D terrain">
                       <Switch label="" checked={layer.terrain ?? false}

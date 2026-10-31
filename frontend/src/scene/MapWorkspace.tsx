@@ -190,6 +190,7 @@ function MapContents({ onProbe }: { onProbe: (text: string) => void }) {
             stride: decoded.bufWidth,
             samples: decoded.samples, sampleType: decoded.sampleType,
             nodata, style,
+            spacingX: rt.texelMetres().x, spacingY: rt.texelMetres().y,
           });
           if (!rgba) continue;
           const tex = new THREE.DataTexture(
@@ -219,6 +220,7 @@ function MapContents({ onProbe }: { onProbe: (text: string) => void }) {
             stride: decoded.bufWidth,
             samples: decoded.samples, sampleType: decoded.sampleType,
             nodata, style,
+            spacingX: rt.texelMetres().x, spacingY: rt.texelMetres().y,
           });
           if (rgba) {
             const mat = rec.mesh.material as THREE.MeshBasicMaterial;

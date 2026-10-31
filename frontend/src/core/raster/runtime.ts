@@ -12,6 +12,7 @@ import { isCancelledError } from "../data/errors";
 import { createLogger } from "../data/logging";
 import type { RasterStyle } from "./bands";
 import { DEFAULT_RASTER_STYLE } from "./bands";
+import { texelSizeInMetres } from "./hillshade";
 
 const log = createLogger("raster");
 
@@ -354,6 +355,16 @@ export class RasterStreamRuntime {
   setStyle(patch: Partial<RasterStyle>): void {
     this.style = { ...this.style, ...patch };
     this.styleEpoch++;
+  }
+
+  /** CP7: texel spacing in METRES for hillshade gradients — projected CRS
+   *  use the affine directly, geographic CRS convert at the raster's mean
+   *  latitude (never assume degrees are metres). */
+  texelMetres(): { x: number; y: number } {
+    const unit = this.descriptor.spatialReference?.reference.horizontalUnit.name ?? "metre";
+    const gt = this.descriptor.geotransform;
+    const meanLat = gt.f + (gt.e * this.descriptor.height) / 2;
+    return texelSizeInMetres(gt, unit, meanLat);
   }
 
   dispose(): void {
