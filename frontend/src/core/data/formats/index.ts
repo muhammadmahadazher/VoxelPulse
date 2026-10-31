@@ -5,6 +5,7 @@ import { plyAdapter } from "./ply";
 import { pcdAdapter } from "./pcd";
 import { XyzAdapter } from "./xyz";
 import { copcAdapter } from "./copc/adapter";
+import { geotiffAdapter } from "./geotiff/adapter";
 
 let registered = false;
 
@@ -16,5 +17,6 @@ export function registerBuiltinAdapters(): void {
   formatRegistry.register(pcdAdapter);
   formatRegistry.register(new XyzAdapter());
   formatRegistry.register(copcAdapter);
+  formatRegistry.register(geotiffAdapter);
   registered = true;
 }

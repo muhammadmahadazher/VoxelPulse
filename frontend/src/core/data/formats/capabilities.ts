@@ -52,4 +52,12 @@ export const FORMAT_CAPABILITIES: Record<DataFormat, FormatCapabilities> = {
     hierarchical: true,
     notes: "Cloud Optimized Point Cloud (LAZ 1.4 octree); streamed nodes, point formats 6-8; no LAZ-write",
   },
+  geotiff: {
+    browserImport: true,
+    randomAccess: true, // COG tile/overview byte ranges (§13)
+    streaming: true,
+    export: false,
+    hierarchical: true,
+    notes: "GeoTIFF/COG raster; windowed reads via geotiff.js over VoxelPulse DataSource; classic TIFF + BigTIFF; LZW/Deflate/JPEG(decode)/Packbits/Zstd",
+  },
 };

@@ -4,9 +4,9 @@ import type { DatasetId, ChunkId } from "./ids";
 import type { DatasetMetadata } from "./metadata";
 
 export type DataFormat =
-  | "las" | "ply" | "pcd" | "xyz" | "generated" | "vpf1-stream" | "copc";
+  | "las" | "ply" | "pcd" | "xyz" | "generated" | "vpf1-stream" | "copc" | "geotiff";
 
-export type DatasetKind = "point-cloud" | "sensor-stream";
+export type DatasetKind = "point-cloud" | "sensor-stream" | "raster" | "terrain";
 
 /** Extensible categories for future formats (raster/vector/terrain/... §6). */
 export type DatasetKindToken = DatasetKind | (string & {});
