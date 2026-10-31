@@ -49,7 +49,7 @@ describe("GeoTIFF metadata (§48)", () => {
   it("grayscale fixture: correct dimensions, transform, CRS", async () => {
     const src = new MemorySource(ab("gray.tif"), "gray.tif");
     const info = await geotiffAdapter.inspect(src);
-    const raster = info.metadata.formatSpecific?.raster as unknown as import("../../raster/model").RasterDescriptor;
+    const raster = info.metadata.formatSpecific?.raster as unknown as import("../../../raster/model").RasterDescriptor;
     expect(raster.width).toBe(64);
     expect(raster.height).toBe(64);
     expect(raster.bandCount).toBe(1);
@@ -65,14 +65,14 @@ describe("GeoTIFF metadata (§48)", () => {
   it("RGB fixture: 3 bands, photometric RGB", async () => {
     const src = new MemorySource(ab("rgb.tif"), "rgb.tif");
     const info = await geotiffAdapter.inspect(src);
-    const raster = info.metadata.formatSpecific?.raster as unknown as import("../../raster/model").RasterDescriptor;
+    const raster = info.metadata.formatSpecific?.raster as unknown as import("../../../raster/model").RasterDescriptor;
     expect(raster.bandCount).toBe(3);
   });
 
   it("Float32 DEM fixture: sample type + nodata + CRS (§30)", async () => {
     const src = new MemorySource(ab("dem-f32.tif"), "dem-f32.tif");
     const info = await geotiffAdapter.inspect(src);
-    const raster = info.metadata.formatSpecific?.raster as unknown as import("../../raster/model").RasterDescriptor;
+    const raster = info.metadata.formatSpecific?.raster as unknown as import("../../../raster/model").RasterDescriptor;
     expect(raster.sampleType).toBe("float32");
     expect(raster.bands[0].nodata).toBe(-9999);
     expect(raster.crs).toBe("EPSG:32643");
@@ -81,14 +81,14 @@ describe("GeoTIFF metadata (§48)", () => {
   it("nodata DEM fixture: nodata propagated (§28)", async () => {
     const src = new MemorySource(ab("dem-nodata.tif"), "dem-nodata.tif");
     const info = await geotiffAdapter.inspect(src);
-    const raster = info.metadata.formatSpecific?.raster as unknown as import("../../raster/model").RasterDescriptor;
+    const raster = info.metadata.formatSpecific?.raster as unknown as import("../../../raster/model").RasterDescriptor;
     expect(raster.bands[0].nodata).toBe(-9999);
   });
 
   it("rotated fixture: affine rotation preserved (§9, §42)", async () => {
     const src = new MemorySource(ab("rotated.tif"), "rotated.tif");
     const info = await geotiffAdapter.inspect(src);
-    const raster = info.metadata.formatSpecific?.raster as unknown as import("../../raster/model").RasterDescriptor;
+    const raster = info.metadata.formatSpecific?.raster as unknown as import("../../../raster/model").RasterDescriptor;
     // ModelTransformation with 30° rotation — b/d coefficients nonzero
     expect(raster.geotransform.b).not.toBe(0);
     expect(raster.geotransform.d).not.toBe(0);

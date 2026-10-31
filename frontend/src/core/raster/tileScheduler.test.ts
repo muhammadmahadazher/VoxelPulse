@@ -67,7 +67,7 @@ describe("scheduleTiles (§16)", () => {
 
   it("zoomed-in viewport yields finer level + more tiles", () => {
     const vp = {
-      bounds: { min: [FOOTPRINT.min[0], FOOTPRINT.min[1]], max: [FOOTPRINT.min[0] + 256, FOOTPRINT.min[1] + 256] },
+      bounds: { min: [FOOTPRINT.min[0], FOOTPRINT.min[1]] as [number, number], max: [FOOTPRINT.min[0] + 256, FOOTPRINT.min[1] + 256] as [number, number] },
       width: 1024, height: 1024,
     };
     const res = scheduleTiles(input({ viewport: vp }));
