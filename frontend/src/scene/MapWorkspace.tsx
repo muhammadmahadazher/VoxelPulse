@@ -84,7 +84,7 @@ function MapContents({ onProbe }: { onProbe: (text: string) => void }) {
     }
   });
 
-  const handleClick = (e: ThreeEvent<Click>) => {
+  const handleClick = (e: ThreeEvent<MouseEvent>) => {
     e.stopPropagation();
     const dsId = (e.object as THREE.Mesh).userData?.datasetId as string | undefined;
     const rt = dsId ? rasterRegistry.get(dsId) : undefined;
