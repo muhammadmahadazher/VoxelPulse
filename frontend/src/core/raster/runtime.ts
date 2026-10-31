@@ -78,6 +78,9 @@ export class RasterStreamRuntime {
   private vpSource: VpGeoTIFFSource | null = null;
   /** Real overview levels measured from the actual images. */
   private levels: Level[] = [];
+  /** Measured dataset statistics (band 0, nodata-excluded) from the file's
+   *  coarsest overview — REAL pixels, full coverage, read once at open. */
+  stretchStats: { min: number; max: number } | null = null;
   /** Display style (raw data is never restyled — packing is display-only). */
   style: RasterStyle = { ...DEFAULT_RASTER_STYLE };
   /** Bumped on setStyle — the renderer re-packs resident tiles. */
@@ -121,6 +124,39 @@ export class RasterStreamRuntime {
         ...this.descriptor,
         overviews: this.levels.slice(1).map((l) => ({ factor: l.factor, width: l.width, height: l.height })),
       };
+    }
+    await this.measureStats();
+  }
+
+  /** CP5: measured display-stretch statistics — the coarsest overview is a
+   *  small full-coverage sample of REAL pixels (band 0, nodata excluded).
+   *  Never fabricated: the Inspector reports the provenance. */
+  private async measureStats(): Promise<void> {
+    if (!this.tiff || this.levels.length === 0) return;
+    const coarsest = this.levels[this.levels.length - 1];
+    try {
+      const image = await this.tiff.getImage(coarsest.imageIndex);
+      const read = await image.readRasters({
+        window: [0, 0, coarsest.width, coarsest.height],
+        interleave: true,
+      }) as unknown as { width: number; height: number; data: DecodedTile["raw"] } | DecodedTile["raw"] | DecodedTile["raw"][];
+      const raw = (Array.isArray(read) ? read[0] : read) as DecodedTile["raw"];
+      const samples = image.getSamplesPerPixel();
+      let min = Infinity, max = -Infinity;
+      for (let p = 0; p < raw.length; p += samples) {
+        const v = Number(raw[p]);
+        if (!Number.isFinite(v)) continue;
+        if (this.descriptor.bands[0]?.nodata !== undefined && v === this.descriptor.bands[0].nodata) continue;
+        if (v < min) min = v;
+        if (v > max) max = v;
+      }
+      if (Number.isFinite(min) && Number.isFinite(max) && max >= min) {
+        this.stretchStats = { min, max };
+      }
+    } catch (e) {
+      // stats are a display refinement — a failed read degrades to per-tile
+      // stretch, never blocks the dataset
+      log.warn("stretch stats unavailable", e);
     }
   }
 
@@ -188,6 +224,20 @@ export class RasterStreamRuntime {
     return this.metrics;
   }
 
+  /** Recompute the tile-derived metrics from the actual cache state — called
+   *  when tiles finish/fail so `queued` never freezes mid-flight. */
+  private refreshMetrics(): void {
+    let bytes = 0, queued = 0;
+    for (const [, e] of this.tiles) {
+      bytes += e.bytes;
+      if (e.state === "unloaded" || e.state === "fetching") queued++;
+    }
+    this.metrics.residentTiles = this.tiles.size;
+    this.metrics.textureBytes = bytes;
+    this.metrics.queued = queued;
+    this.metrics.fetchedBytes = this.vpSource?.totalBytesFetched ?? 0;
+  }
+
   private async loadTile(entry: TileEntry): Promise<void> {
     const tile = entry.tile;
     const ctrl = new AbortController();
@@ -233,6 +283,8 @@ export class RasterStreamRuntime {
       }
     } finally {
       this.inFlight.delete(tile.key);
+      this.refreshMetrics();
+      this.hooks.onMetrics?.(this.metrics);
     }
   }
 

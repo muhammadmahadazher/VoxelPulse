@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useProjectStore } from "../stores/projectStore";
 import { useStore, OBJECT_VELOCITIES, COLORMAPS, type Colormap } from "../store";
 import { datasetManager } from "../core/data/datasetManager";
+import { rasterRegistry } from "../core/raster/registry";
 import { PiP } from "../ui/PiP";
 import { PanelHeader, PropertyRow, Slider, Stepper, Switch, EmptyState, Chip } from "../ui/kit";
 
@@ -53,6 +54,9 @@ export function InspectorPanel() {
   const crsInfo = dataset?.metadata.spatialReference;
   const track = selection.kind === "track" ? frame?.objects.find((o) => o.id === selection.id) : undefined;
   const vel = selection.kind === "track" ? OBJECT_VELOCITIES[selection.id] : undefined;
+  // raster style mutations live on the runtime (engine-owned) — a tick keeps
+  // the Inspector's mode select in sync after setStyle
+  const [styleTick, setStyleTick] = useState(0);
 
   return (
     <div className="flex h-full flex-col">
@@ -168,6 +172,27 @@ export function InspectorPanel() {
                     <PropertyRow label="CRS">
                       <span className="font-[var(--vp-font-mono)] text-[12px] text-[var(--vp-accent)]">{r.crs ?? "—"}</span>
                     </PropertyRow>
+                    <PropertyRow label="Mode">
+                      {(() => {
+                        const rt = layer.datasetId ? rasterRegistry.get(layer.datasetId) : undefined;
+                        if (!rt) return <span className="text-[12px] text-[var(--vp-text-3)]">—</span>;
+                        return (
+                          <select
+                            value={rt.style.mode}
+                            onChange={(e) => {
+                              rt.setStyle({ mode: e.target.value as typeof rt.style.mode });
+                              setStyleTick((n) => n + 1);
+                            }}
+                            className="vp-raised h-[24px] rounded-[var(--vp-r-sm)] border px-1.5 text-[12px] text-[var(--vp-text-1)] outline-none">
+                            <option value="auto">auto</option>
+                            <option value="rgb">rgb</option>
+                            <option value="grayscale">grayscale</option>
+                            <option value="pseudocolor">pseudocolor</option>
+                          </select>
+                        );
+                      })()}
+                    </PropertyRow>
+                    <StyleStatsRow key={styleTick} datasetId={layer.datasetId} />
                     <Slider label="Opacity" value={layer.opacity} min={0.1} max={1} step={0.05}
                       onChange={(v) => updateLayer(layer.id, { opacity: v })}
                       format={(v) => `${(v * 100) | 0}%`} />
@@ -346,5 +371,26 @@ function SectionTitleInline({ title }: { title: string }) {
       <span className="text-[var(--vp-accent)]"><Radio size={12} /></span>
       <span className="text-[11px] font-semibold">{title}</span>
     </div>
+  );
+}
+
+/** CP5: measured display-stretch statistics — read live from the runtime so
+ *  the Inspector reports the REAL numbers used by the display stretch. */
+function StyleStatsRow({ datasetId }: { datasetId?: string }) {
+  const rt = datasetId ? rasterRegistry.get(datasetId) : undefined;
+  if (!rt?.stretchStats) {
+    return (
+      <PropertyRow label="Stretch">
+        <span className="font-[var(--vp-font-mono)] text-[12px] text-[var(--vp-text-3)]">auto (bit depth)</span>
+      </PropertyRow>
+    );
+  }
+  const { min, max } = rt.stretchStats;
+  return (
+    <PropertyRow label="Stretch (measured)">
+      <span className="font-[var(--vp-font-mono)] text-[12px] text-[var(--vp-text-2)]">
+        {Number.isInteger(min) ? min : min.toFixed(2)} … {Number.isInteger(max) ? max : max.toFixed(2)}
+      </span>
+    </PropertyRow>
   );
 }

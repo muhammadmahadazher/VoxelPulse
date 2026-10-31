@@ -178,6 +178,8 @@ function MapContents({ onProbe }: { onProbe: (text: string) => void }) {
       const layerOpacity = layer ? layer.opacity : 1;
       const want = new Set<string>();
       const nodata = rt.rasterDescriptor.bands.map((b) => b.nodata);
+      // CP5: dataset-measured stretch is the fallback for float rasters
+      const style = { ...rt.style, stretch: rt.style.stretch ?? rt.stretchStats ?? undefined };
       for (const [tileKey, decoded] of rt.readyTiles()) {
         const key = `${rt.datasetId}::${tileKey}`;
         want.add(key);
@@ -186,7 +188,7 @@ function MapContents({ onProbe }: { onProbe: (text: string) => void }) {
           const rgba = packTileRgba({
             raw: decoded.raw, width: decoded.width, height: decoded.height,
             samples: decoded.samples, sampleType: decoded.sampleType,
-            nodata, style: rt.style,
+            nodata, style,
           });
           if (!rgba) continue;
           const tex = new THREE.DataTexture(
@@ -214,7 +216,7 @@ function MapContents({ onProbe }: { onProbe: (text: string) => void }) {
           const rgba = packTileRgba({
             raw: decoded.raw, width: decoded.width, height: decoded.height,
             samples: decoded.samples, sampleType: decoded.sampleType,
-            nodata, style: rt.style,
+            nodata, style,
           });
           if (rgba) {
             const mat = rec.mesh.material as THREE.MeshBasicMaterial;
@@ -265,9 +267,9 @@ function MapContents({ onProbe }: { onProbe: (text: string) => void }) {
     const ci = Math.floor(col), ri = Math.floor(row);
     if (ci < 0 || ri < 0 || ci >= desc.width || ri >= desc.height) { onProbe(""); return; }
     const sample = rt.samplePixel(ci, ri);
-    if (!sample) { onProbe(`px ${ci},${ri} · tile not resident`); return; }
+    if (!sample) { onProbe(`E ${(e.point.x + origin[0]).toFixed(1)} · N ${(e.point.y + origin[1]).toFixed(1)} · px ${ci},${ri} · tile not resident`); return; }
     const vals = sample.values.map((v) => (Number.isFinite(v) ? v.toFixed(2) : "nodata")).join(" / ");
-    onProbe(`px ${ci},${ri} · ${desc.crs} · ${vals}${sample.factor > 1 ? ` · L${sample.factor}` : ""}`);
+    onProbe(`E ${(e.point.x + origin[0]).toFixed(1)} · N ${(e.point.y + origin[1]).toFixed(1)} · px ${ci},${ri} · ${desc.crs} · ${vals}${sample.factor > 1 ? ` · L${sample.factor}` : ""}`);
   };
 
   return <group ref={groupRef} onClick={handleClick} />;
