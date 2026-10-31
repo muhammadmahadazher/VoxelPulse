@@ -25,9 +25,18 @@ export interface RasterRuntimeHooks {
   onMetrics?: (m: RasterMetrics) => void;
 }
 
+export interface DecodedTile {
+  width: number;
+  height: number;
+  pixels: Uint8Array | Float32Array | Int16Array | Uint16Array | Int32Array;
+  samples: number;
+  tile: ScheduledTile;
+}
+
 interface TileEntry {
   tile: ScheduledTile;
   state: "unloaded" | "fetching" | "ready" | "failed";
+  decoded?: DecodedTile;
   bytes: number;
   lastUsed: number;
 }
@@ -159,6 +168,7 @@ export class RasterStreamRuntime {
       entry.state = "ready";
       entry.bytes = bytes;
       entry.lastUsed = performance.now();
+      entry.decoded = { width, height, pixels: read[0] as unknown as DecodedTile["pixels"], samples, tile };
       this.hooks.onTileReady(tile, {
         width, height,
         pixels: read[0] as unknown as Uint8Array,
@@ -211,6 +221,41 @@ export class RasterStreamRuntime {
 
   metricsReadonly(): RasterMetrics {
     return this.metrics;
+  }
+
+  /** §55 analog: ready tiles for the map renderer. */
+  readyTiles(): Map<string, DecodedTile> {
+    const out = new Map<string, DecodedTile>();
+    for (const [id, e] of this.tiles) {
+      if (e.state === "ready" && e.decoded) out.set(id, e.decoded);
+    }
+    return out;
+  }
+
+  /** §29: pixel probe — returns decoded sample values at pixel (col,row),
+   *  or null when the containing tile is not resident (§43: never zero). */
+  samplePixel(col: number, row: number): { values: number[]; nodata: boolean } | null {
+    for (const [, e] of this.tiles) {
+      if (e.state !== "ready" || !e.decoded) continue;
+      const t = e.decoded.tile;
+      const gt = this.descriptor.geotransform;
+      // tile bounds → pixel range in the referenced image
+      const px0 = Math.round((t.bounds.min[0] - gt.c) / (gt.a || 1));
+      const px1 = Math.round((t.bounds.max[0] - gt.c) / (gt.a || 1));
+      const py0 = Math.round((gt.f - t.bounds.max[1]) / (Math.abs(gt.e) || 1));
+      const py1 = Math.round((gt.f - t.bounds.min[1]) / (Math.abs(gt.e) || 1));
+      if (col < px0 || col >= px1 || row < py0 || row >= py1) continue;
+      const lc = col - px0;
+      const lr = row - py0;
+      const d = e.decoded;
+      const values: number[] = [];
+      for (let s2 = 0; s2 < d.samples; s2++) {
+        values.push(d.pixels[(lr * d.width + lc) * d.samples + s2]);
+      }
+      const nodata = this.descriptor.bands.some((b) => b.nodata !== undefined && values[0] === b.nodata);
+      return { values, nodata };
+    }
+    return null;
   }
 
   dispose(): void {

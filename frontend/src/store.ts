@@ -9,7 +9,7 @@ export const COLORMAPS: Colormap[] = [
 export type StreamMode = "connecting" | "live" | "sim" | "file";
 export type ScenarioName = "urban" | "warehouse" | "drone";
 export type PipMode = "front" | "rear" | "bev";
-export type ViewLayout = "single" | "split" | "fusion";
+export type ViewLayout = "single" | "split" | "fusion" | "map";
 
 export interface SensorObject {
   id: number;
@@ -208,7 +208,7 @@ export const useStore = create<VoxelState>((set, get) => ({
   setViewLayout: (v) => set({ viewLayout: v }),
   cycleViewLayout: () =>
     set((s) => ({
-      viewLayout: s.viewLayout === "single" ? "split" : s.viewLayout === "split" ? "fusion" : "single",
+      viewLayout: s.viewLayout === "single" ? "split" : s.viewLayout === "split" ? "fusion" : s.viewLayout === "fusion" ? "map" : "single",
     })),
   addRulerPoint: (p) =>
     set((st) => ({ rulerPoints: st.rulerPoints.length >= 2 ? [p] : [...st.rulerPoints, p] })),
