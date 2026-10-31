@@ -19,3 +19,4 @@ Thumbs.db
 .mimosa/
 *.log
 frontend/tsconfig.tsbuildinfo
+frontend/test-results/
