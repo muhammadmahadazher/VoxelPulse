@@ -96,9 +96,30 @@ async function main() {
     writeFileSync(join(OUT, "rotated.tif"), new Uint8Array(buf));
   }
 
-  // 6. tiled COG fixture: geotiff.js writeArrayBuffer is strip-only, so the
-  // tiled COG fixture comes from the real COG in the §53 scale gate; the
-  // local suite covers strip-based rasters + malformed input.
+  // 6. tiled COG fixture: geotiff.js writeArrayBuffer is strip-only —
+  // scripts/gen-cog-fixture.mjs builds cog-rgb-ov.tif by hand.
+
+  // 6b. matched orthophoto — SAME extent/CRS/texel as the DEM fixture, RGB
+  // diagonal-band pattern (visually obvious when draped on terrain, CP8)
+  {
+    const data = new Uint8Array(W * H * 3);
+    for (let r = 0; r < H; r++) {
+      for (let c = 0; c < W; c++) {
+        const i = (r * W + c) * 3;
+        const band = ((c + r) >> 3) & 1; // 8px diagonal stripes
+        data[i] = band ? 220 : 60;
+        data[i + 1] = Math.round((c / W) * 200) + 30;
+        data[i + 2] = Math.round((r / H) * 160) + 60;
+      }
+    }
+    const buf = writeArrayBuffer(data, {
+      width: W, height: H, SamplesPerPixel: 3, PhotometricInterpretation: 2,
+      ModelPixelScale: [10, 10, 0],
+      ModelTiepoint: [0, 0, 0, 500000, 4000000, 0],
+      ProjectedCSTypeGeoKey: 32643,
+    });
+    writeFileSync(join(OUT, "ortho.tif"), new Uint8Array(buf));
+  }
 
   // 7. malformed/truncated TIFF — valid magic + garbage IFD
   {

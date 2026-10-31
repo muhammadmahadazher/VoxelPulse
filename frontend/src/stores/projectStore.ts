@@ -20,6 +20,8 @@ export interface Layer {
   bounds?: [number, number, number, number, number, number]; // xmin ymin zmin xmax ymax zmax
   /** Raster layers: render the DEM as 3D terrain in the perspective scene. */
   terrain?: boolean;
+  /** Raster layers: dataset id of an imagery raster draped on this terrain. */
+  drapeDatasetId?: string;
 }
 
 /** Persistent dataset reference in project state (§35, §78) — descriptors

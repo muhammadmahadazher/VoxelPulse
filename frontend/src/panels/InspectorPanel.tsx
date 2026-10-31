@@ -223,6 +223,19 @@ export function InspectorPanel() {
                           onChange={t.setTerrainExaggeration} format={(v) => `${v.toFixed(1)}×`} />
                       </PropertyRow>
                     )}
+                    {layer.terrain && (
+                      <PropertyRow label="Drape imagery">
+                        <select
+                          value={layer.drapeDatasetId ?? ""}
+                          onChange={(e) => updateLayer(layer.id, { drapeDatasetId: e.target.value || undefined })}
+                          className="vp-raised h-[24px] max-w-[110px] rounded-[var(--vp-r-sm)] border px-1.5 text-[12px] text-[var(--vp-text-1)] outline-none">
+                          <option value="">none</option>
+                          {useProjectStore.getState().datasets
+                            .filter((d) => d.id !== layer.datasetId && d.kind === "raster")
+                            .map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+                        </select>
+                      </PropertyRow>
+                    )}
                     <Slider label="Opacity" value={layer.opacity} min={0.1} max={1} step={0.05}
                       onChange={(v) => updateLayer(layer.id, { opacity: v })}
                       format={(v) => `${(v * 100) | 0}%`} />

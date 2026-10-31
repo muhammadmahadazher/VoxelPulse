@@ -13,11 +13,21 @@ import { useProjectStore } from "../stores/projectStore";
 import { useStore } from "../store";
 import { renderOrigin, setSessionOrigin } from "../utils/projectSpatial";
 import { buildTerrainTile, type TerrainMeshData } from "../core/raster/terrain";
+import { drapeVertexColors } from "../core/raster/drape";
+import { appendConsole } from "../panels/BottomPanel";
+
+/** Console warn once per (terrain, imagery) pair — drape issues are honest
+ *  one-time notices, not per-frame spam. */
+const drapeWarned = new Set<string>();
 
 interface MeshRecord {
   mesh: THREE.Mesh;
   datasetId: string;
   exaggerationEpoch: number;
+  drapeId: string | null;
+  /** Imagery tile count when this mesh's drape was built — a change means
+   *  new imagery bytes arrived → rebuild the drape. */
+  drapeTiles: number;
 }
 
 /** Project the camera onto the XY plane; extent grows with distance so the
@@ -90,12 +100,12 @@ export function TerrainLayer() {
     }
 
     // drive the shared tile scheduler from the 3D camera (wall-clock throttle)
+    const vp3d = terrainViewport(camera as THREE.PerspectiveCamera, origin as [number, number, number]);
     const now = performance.now();
     if (now - lastUpdate.current > 150) {
       lastUpdate.current = now;
-      const vp = terrainViewport(camera as THREE.PerspectiveCamera, origin as [number, number, number]);
       for (const rt of rts) {
-        void rt.update(vp).catch(() => { /* surfaced via metrics */ });
+        void rt.update(vp3d).catch(() => { /* surfaced via metrics */ });
       }
     }
 
@@ -129,9 +139,41 @@ export function TerrainLayer() {
           mesh.scale.z = exaggeration;
           mesh.userData = { datasetId: rt.datasetId, tileKey };
           mesh.visible = layer.visible;
-          const rec: MeshRecord = { mesh, datasetId: rt.datasetId, exaggerationEpoch: exaggeration };
+          const rec: MeshRecord = {
+            mesh, datasetId: rt.datasetId, exaggerationEpoch: exaggeration,
+            drapeId: layer.drapeDatasetId ?? null,
+            drapeTiles: layer.drapeDatasetId ? (rasterRegistry.get(layer.drapeDatasetId)?.readyTiles().size ?? 0) : 0,
+          };
           meshesRef.current.set(key, rec);
           groupRef.current.add(mesh);
+
+          // CP8: optional imagery drape — per-vertex colors through each
+          // raster's OWN affine (cross-CRS via the proj4 pipeline)
+          const drapeId = layer.drapeDatasetId;
+          if (drapeId) {
+            const orthoRt = rasterRegistry.get(drapeId);
+            if (orthoRt) {
+              const res = drapeVertexColors({
+                mesh: built, origin: origin as [number, number, number],
+                projectCrsId: desc.crs,
+                ortho: { desc: orthoRt.rasterDescriptor, samplePixel: (c, r) => orthoRt.samplePixel(c, r) },
+              });
+              const wkey = `${rt.datasetId}→${drapeId}`;
+              for (const w of res.warns) {
+                if (!drapeWarned.has(wkey + w)) {
+                  drapeWarned.add(wkey + w);
+                  appendConsole(`drape ${desc.name}: ${w}`);
+                }
+              }
+              if (res.colors.length === built.vertexCount * 3) {
+                geo.setAttribute("color", new THREE.BufferAttribute(res.colors, 3));
+                (mat as THREE.MeshStandardMaterial).vertexColors = true;
+                // imagery supplies the color — drop the gray base tint
+                (mat as THREE.MeshStandardMaterial).color.set("#ffffff");
+                (mat as THREE.MeshStandardMaterial).needsUpdate = true;
+              }
+            }
+          }
 
           // first terrain in an otherwise-empty scene → offer camera framing.
           // ViewportHandle.frameBounds expects bounds in (E, Z, N) order
@@ -146,6 +188,32 @@ export function TerrainLayer() {
             }));
           }
         } else {
+          // drape selection changed → rebuild this tile's mesh next pass
+          const wantDrape = layer.drapeDatasetId ?? null;
+          if (existing.drapeId !== wantDrape) {
+            existing.mesh.geometry.dispose();
+            (existing.mesh.material as THREE.Material).dispose();
+            groupRef.current.remove(existing.mesh);
+            meshesRef.current.delete(key);
+            continue;
+          }
+          // CP8: imagery bytes arrived since the drape was built → rebuild
+          if (wantDrape) {
+            const orthoRt = rasterRegistry.get(wantDrape);
+            if (orthoRt) {
+              // drive the imagery runtime with the terrain viewport so its
+              // tiles actually fetch (the map may be framed elsewhere)
+              void orthoRt.update(vp3d).catch(() => { /* via metrics */ });
+              const tiles = orthoRt.readyTiles().size;
+              if (tiles !== existing.drapeTiles) {
+                existing.mesh.geometry.dispose();
+                (existing.mesh.material as THREE.Material).dispose();
+                groupRef.current.remove(existing.mesh);
+                meshesRef.current.delete(key);
+                continue;
+              }
+            }
+          }
           if (existing.exaggerationEpoch !== exaggeration) {
             existing.mesh.scale.z = exaggeration;
             existing.exaggerationEpoch = exaggeration;
