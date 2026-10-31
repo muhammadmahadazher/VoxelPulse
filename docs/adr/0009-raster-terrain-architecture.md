@@ -69,6 +69,41 @@ WorkerPool for heavy paths.
 - WebGL2 + iGPU target unchanged; no Cesium, no WebGPU, no basemap
   dependencies (§58–60, §24).
 
+## Implementation addendum (Phase 5 delivery)
+
+Decisions that crystallized while building it (CP4–CP10):
+
+- **One source-backed handle everywhere.** Both metadata inspection and the
+  streaming runtime construct `GeoTIFF.fromSource(new VpGeoTIFFSource(...))`
+  over the VoxelPulse DataSource — no `fromArrayBuffer` header windows, no
+  geotiff HTTP client. geotiff.js v3 defers geo tags, so georeferencing comes
+  from our own raw IFD reader over a bounded header window with the deferred
+  fileDirectory arrays as fallback; rotation survives (v3 would flatten
+  ModelTransformation).
+- **COG labeling is verified, not assumed.** `cloudOptimized` requires the
+  GDAL ghost-area signature (`GDAL_STRUCTURAL_METADATA`) + tiled layout +
+  overview IFDs; tiled-but-unverified files report "tiled TIFF".
+- **Overview truth comes from the IFDs.** Factors are measured
+  (`full.width / ov.width`) and the runtime maps factor → image index by
+  dimension match — never `log2`, and the factor is never applied twice.
+- **Scheduling is pixel-space through the affine.** Tiles carry world quads
+  (pixel-corner → affine), so rotated rasters render rotated; AABBs are
+  conservative culling bounds.
+- **Terrain seams are eliminated structurally.** The runtime decodes one
+  extra right/bottom column/row per tile so neighboring tiles sample the
+  SAME source pixel at shared corners; the 2D display crops the texture to
+  the exact tile size via a stride-aware packing.
+- **Draping is per-vertex through each raster's own affine** (cross-CRS via
+  the cached proj4 pipeline); unplaceable imagery keeps base shading with a
+  console warning rather than guessed offsets. Sampling happens at
+  terrain-vertex resolution — a documented renderer limitation.
+- **Hillshade uses Horn gradients with metre spacing**: degree CRSs convert
+  at the raster's mean latitude (never "degrees are metres"); the aspect
+  convention flips the south-running raster row axis to compass north-up.
+- **The raster runtime owns one LRU per dataset shared by the 2D map and
+  the 3D terrain** (same tile cache, same budget, both renderers drive the
+  same scheduler from their own viewports).
+
 ## References
 
 - OGC COG spec — docs.ogc.org/is/21-026/21-026.html

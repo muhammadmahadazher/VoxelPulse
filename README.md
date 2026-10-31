@@ -83,7 +83,9 @@ Import runs through the spatial data engine (Source → FormatAdapter → Datase
 | XYZ / TXT / PTS | ✓ adapter | point count, bounds, intensity column | Conservative: must parse as a coordinate table |
 | VPF1 live stream | ✓ temporal | session stats | Separate temporal path — not forced through file adapters |
 | LAZ | — | — | Roadmap (massive-data phase, with decompression limits) |
-| COPC / GeoTIFF / vector | — | — | Roadmap (GIS phases) — architecture prepared, nothing claimed |
+| COPC | ✓ streaming | header/VLR/hierarchy ranges | Cloud Optimized Point Cloud — octree nodes stream via HTTP ranges (Phase 4) |
+| GeoTIFF / COG | ✓ streaming | header-window + ranged IFD reads | Classic TIFF + BigTIFF, LZW/Deflate/JPEG(decode)/Packbits/Zstd; COG range-streaming; 2D Map, terrain, hillshade, draping (Phase 5) |
+| Vector (Shapefile/GeoJSON) | — | — | Roadmap — not claimed |
 | Export: PLY / PCD / PNG / .vxp | ✓ | — | Stable |
 
 ## Architecture
@@ -125,9 +127,9 @@ Source ─▶ FormatAdapter ─▶ Dataset ─▶ Chunk/Resource ─▶ Worker P
 ## Roadmap
 
 - **v4 Spatial Workstation** — ✅ shell, layers, projects, palette · ✅ spatial data engine · ✅ geospatial coordinate foundation (CRS, floating origin) · ⏳ cross-sections, measurement polish
-- **v5 GIS Foundation** — vector layers, attribute table, map workspace, reprojection export
-- **v6 Massive Data** — chunked LOD streaming, LAZ/COPC, tens-of-millions+ points
-- **v7 Analysis Platform** — ground classification, DEM, clustering, jobs backend
+- **v5 GIS Raster & Terrain (Phase 5)** — ✅ GeoTIFF/COG streaming, 2D Map workspace, DEM terrain, hillshade, orthophoto draping, LiDAR fusion ([guide](docs/gis/raster-terrain.md))
+- **v6 Massive Data** — ✅ COPC octree streaming shipped (Phase 4); remaining: LAZ-file import, tens-of-millions+ stress polish
+- **v7 Analysis Platform** — vector layers, attribute table, ground classification, clustering, jobs backend
 - **v8 Extensible Spatial OS** — plugin SDK, desktop shell (Tauri), scripting
 
 ## Contributing
