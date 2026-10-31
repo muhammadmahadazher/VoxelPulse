@@ -29,7 +29,9 @@ import { UrlSource } from "./core/data/source/url";
 import {
   serializeProject, deserializeProject, downloadProject, saveAutosave, applyProject,
 } from "./utils/projectIo";
-import { useStore } from "./store";
+import { useStore, type ViewLayout } from "./store";
+import type { DatasetDescriptor } from "./core/data/types";
+import { asDatasetId } from "./core/data/ids";
 import { useUiStore } from "./stores/uiStore";
 import { useProjectStore, type Layer } from "./stores/projectStore";
 
@@ -298,6 +300,9 @@ export default function App() {
         ],
       });
       appendConsole(`imported ${descriptor.name} — ${w}×${h} ${raster.bandCount ?? "?"}-band raster (${descriptor.format})`);
+      // CP4: focus the Map workspace on a FRESH raster import (reopens keep
+      // the saved layout — attachRaster deliberately never switches layout)
+      useStore.getState().setViewLayout("map");
     },
     attachRaster: ({ descriptor, source }) => {
       void (async () => {
@@ -312,9 +317,10 @@ export default function App() {
           onTileEvicted: () => { /* MapWorkspace disposes geometry */ },
         });
         rasterRegistry.set(descriptor.id, runtime);
-        // CP4: focus the Map workspace — the map frames the union footprint
-        // on the next registry change (MapWorkspace §37 origin strategy).
-        useStore.getState().setViewLayout("map");
+        // CP10: restore the persisted raster display style, if any
+        const persisted = useProjectStore.getState().layers
+          .find((l) => l.datasetId === descriptor.id)?.rasterStyle;
+        if (persisted) runtime.setStyle(persisted as never);
         appendConsole(`raster streaming attached — ${descriptor.name} (open ${(performance.now() - openT0).toFixed(0)} ms)`);
       })().catch((e) => {
         appendConsole("raster FAILED — " + (e as Error).message);
@@ -534,8 +540,30 @@ export default function App() {
       const restored = applyProject(doc);
       // §69: origin first, so render-local camera values resolve correctly.
       if (doc.workspace.renderOrigin) setSessionOrigin(doc.workspace.renderOrigin);
-      if (restored.viewLayout === "split" || restored.viewLayout === "fusion")
-        useStore.getState().setViewLayout(restored.viewLayout);
+      // CP10: remote rasters reopen through source-backed streaming — the
+      // saved descriptor carries everything the runtime needs (no tile data
+      // is ever serialized). Local rasters surface via the relink flow.
+      for (const ref of doc.datasets) {
+        if (ref.kind !== "raster") continue;
+        const src = ref.source as { kind?: string; url?: string };
+        if (src?.kind !== "url" || !src.url) continue;
+        importHooks.attachRaster?.({
+          descriptor: {
+            id: asDatasetId(ref.id),
+            name: ref.name,
+            format: "geotiff",
+            kind: "raster",
+            metadata: ref.metadata as DatasetDescriptor["metadata"],
+            source: ref.source as DatasetDescriptor["source"],
+            status: "ready",
+          },
+          source: new UrlSource(src.url),
+        });
+      }
+      // restore the saved layout AFTER reattachment (map/split/fusion all valid)
+      if (["split", "fusion", "map"].includes(restored.viewLayout)) {
+        useStore.getState().setViewLayout(restored.viewLayout as ViewLayout);
+      }
       if (restored.camera) handleRef.current?.restoreCamera(restored.camera);
       useProjectStore.getState().markSaved(file.name);
       appendConsole(`project opened — ${file.name} (${doc.layers.length} layers)`);

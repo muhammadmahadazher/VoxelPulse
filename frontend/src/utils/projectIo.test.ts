@@ -23,7 +23,7 @@ describe("projectIo round-trip", () => {
     const doc = serializeProject(cam, "split");
 
     const restored = deserializeProject(JSON.parse(JSON.stringify(doc)));
-    expect(restored.formatVersion).toBe(3);
+    expect(restored.formatVersion).toBe(4);
     expect(restored.crs).toBe("VP:LOCAL"); // default project CRS (§9)
     expect(restored.datasets).toHaveLength(1);
     expect(restored.datasets[0]).toMatchObject({ id: "ds-1", format: "las" });
@@ -51,7 +51,7 @@ describe("projectIo round-trip", () => {
       workspace: { type: "scene", viewLayout: "single", camera: null },
     };
     const migrated = deserializeProject(JSON.parse(JSON.stringify(v1)));
-    expect(migrated.formatVersion).toBe(3);
+    expect(migrated.formatVersion).toBe(4);
     expect(migrated.crs).toBe("VP:LOCAL");
     expect(migrated.meta.name).toBe("Phase 1.6 Project");
     expect(migrated.datasets).toEqual([]); // v1 had no dataset table
@@ -73,7 +73,7 @@ describe("projectIo round-trip", () => {
       workspace: { type: "scene", viewLayout: "single", camera: null },
     };
     const m = deserializeProject(JSON.parse(JSON.stringify(v2)));
-    expect(m.formatVersion).toBe(3);
+    expect(m.formatVersion).toBe(4);
     expect(m.crs).toBe("VP:LOCAL");
     expect(m.datasets[0].id).toBe("ds-9");
     expect(m.layers[0].datasetId).toBe("ds-9");
@@ -86,6 +86,37 @@ describe("projectIo round-trip", () => {
     const restored = deserializeProject(JSON.parse(JSON.stringify(doc)));
     expect(restored.crs).toBe("EPSG:32643");
     useProjectStore.getState().setProjectCrs("VP:LOCAL");
+  });
+
+  it("v4: raster style + terrain state persist; v1–v3 still migrate (CP10)", () => {
+    useProjectStore.getState().newProject();
+    useProjectStore.getState().addLayer({
+      id: "lyr-r", name: "dem.tif", type: "raster", visible: true,
+      locked: false, opacity: 1, datasetId: "ds-r",
+      source: { kind: "file", name: "dem.tif" },
+      terrain: true, drapeDatasetId: "ds-o",
+      rasterStyle: { mode: "hillshade", sun: { azimuth: 315, elevation: 45 }, nodataTransparent: true },
+    });
+    const doc = serializeProject(null, "map");
+    const restored = deserializeProject(JSON.parse(JSON.stringify(doc)));
+    expect(restored.formatVersion).toBe(4);
+    const layer = restored.layers[0];
+    expect(layer.terrain).toBe(true);
+    expect(layer.drapeDatasetId).toBe("ds-o");
+    expect((layer.rasterStyle as Record<string, unknown>).mode).toBe("hillshade");
+    expect(restored.workspace.viewLayout).toBe("map");
+    // no raster pixels/tiles in the file (references only, §78)
+    const json = JSON.stringify(doc);
+    expect(json).not.toContain('"pixels"');
+    expect(json).not.toContain('"raw"');
+    // v3 file still migrates
+    const v3 = { formatVersion: 3, meta: { name: "p3", formatVersion: 3, created: "2026-09-03T00:00:00.000Z" },
+      crs: "EPSG:32643", datasets: [], layers: [],
+      layout: { left: 264, right: 288, bottom: 176 },
+      workspace: { type: "scene", viewLayout: "single", camera: null } };
+    const m3 = deserializeProject(JSON.parse(JSON.stringify(v3)));
+    expect(m3.formatVersion).toBe(4);
+    expect(m3.crs).toBe("EPSG:32643");
   });
 
   it("rejects foreign documents", () => {

@@ -1,16 +1,20 @@
-/** `.vxp` project file serialization (ADR-0004, extended in Phase 2 §76–78):
- *  versioned JSON, references-only — never embeds point data. v2 adds the
- *  project dataset table; v1 files migrate losslessly (layers keep their
- *  inline metadata, synthetic layers simply have no datasetId). */
+/** `.vxp` project file serialization (ADR-0004, extended in Phase 2 §76–78
+ *  and Phase 5 CP10): versioned JSON, references-only — never embeds point
+ *  data, raster tiles, textures or terrain meshes. v2 adds the project
+ *  dataset table; v3 gains an explicit project CRS; v4 adds raster display
+ *  style + terrain state. v1 files migrate losslessly. */
 import {
   useProjectStore, newProjectMeta,
   type Layer, type ProjectDatasetRef, type ProjectMeta,
 } from "../stores/projectStore";
 import { useUiStore } from "../stores/uiStore";
+import { useStore } from "../store";
+import { rasterRegistry } from "../core/raster/registry";
+import type { RasterStyle } from "../core/raster/bands";
 
 export interface VxpCamera { position: [number, number, number]; target: [number, number, number] }
 export interface VxpProject {
-  formatVersion: 3;
+  formatVersion: 4;
   meta: ProjectMeta;
   /** §45: project spatial reference, serialized as canonical id. */
   crs: string;
@@ -22,34 +26,47 @@ export interface VxpProject {
     /** §45: render origin used at save time — render-local camera values
      *  resolve to the same world coordinates after reload (§69). */
     renderOrigin?: readonly [number, number, number];
+    /** CP10: terrain vertical exaggeration (visual only). */
+    terrainExaggeration?: number;
   };
 }
 
 export function serializeProject(camera: VxpCamera | null, viewLayout: string, renderOrigin?: readonly [number, number, number]): VxpProject {
   const p = useProjectStore.getState();
   const ui = useUiStore.getState();
+  const layers = p.layers.map((l) => {
+    // CP10: raster display style is engine state — snapshot it onto the
+    // layer record at save time (references only, no pixels)
+    const rt = l.datasetId ? rasterRegistry.get(l.datasetId) : undefined;
+    return rt?.style ? { ...l, rasterStyle: { ...rt.style } } : { ...l };
+  });
   return {
-    formatVersion: 3,
+    formatVersion: 4,
     meta: p.meta,
     crs: p.crs,
     datasets: p.datasets.map((d) => ({ ...d })),
-    layers: p.layers.map((l) => ({ ...l })),
+    layers,
     layout: { left: ui.layout.leftWidth, right: ui.layout.rightWidth, bottom: ui.layout.bottomHeight },
-    workspace: { type: "scene", viewLayout, camera, renderOrigin },
+    workspace: {
+      type: "scene", viewLayout, camera, renderOrigin,
+      terrainExaggeration: useStore.getState().terrainExaggeration,
+    },
   };
 }
 
-/** Accept v1/v2/v3 documents (§46, §76–77): older projects migrate forward —
- *  v2→v3 gains an explicit project CRS defaulting to LOCAL; v1 additionally
- *  gains the empty dataset table. No user project may fail after an upgrade. */
+/** Accept v1/v2/v3/v4 documents (§46, §76–77): older projects migrate
+ *  forward — v2→v3 gains an explicit project CRS defaulting to LOCAL; v1
+ *  additionally gains the empty dataset table; v4 raster style/terrain
+ *  fields ride on layers/workspace and default honestly when absent. No
+ *  user project may fail after an upgrade. */
 export function deserializeProject(doc: unknown): VxpProject {
   const raw = doc as Partial<Omit<VxpProject, "formatVersion">> & { formatVersion?: number };
-  if (!raw || !Array.isArray(raw.layers) || (raw.formatVersion !== 1 && raw.formatVersion !== 2 && raw.formatVersion !== 3)) {
-    throw new Error("not a valid VoxelPulse project (expected formatVersion 1–3)");
+  if (!raw || !Array.isArray(raw.layers) || (raw.formatVersion !== 1 && raw.formatVersion !== 2 && raw.formatVersion !== 3 && raw.formatVersion !== 4)) {
+    throw new Error("not a valid VoxelPulse project (expected formatVersion 1–4)");
   }
   return {
-    formatVersion: 3,
-    meta: { ...newProjectMeta(), ...raw.meta, formatVersion: 3 },
+    formatVersion: 4,
+    meta: { ...newProjectMeta(), ...raw.meta, formatVersion: 4 },
     crs: typeof raw.crs === "string" ? raw.crs : "VP:LOCAL", // v1/v2 → LOCAL (§46)
     datasets: (Array.isArray(raw.datasets) ? raw.datasets : []) as ProjectDatasetRef[],
     layers: (raw.layers as Layer[]).filter((l) => typeof l?.id === "string"),
@@ -59,6 +76,7 @@ export function deserializeProject(doc: unknown): VxpProject {
       viewLayout: raw.workspace?.viewLayout ?? "single",
       camera: raw.workspace?.camera ?? null,
       renderOrigin: raw.workspace?.renderOrigin ?? undefined,
+      terrainExaggeration: raw.workspace?.terrainExaggeration,
     },
   };
 }
@@ -95,6 +113,9 @@ export function applyProject(doc: VxpProject): { camera: VxpCamera | null; viewL
   useUiStore.getState().setLayout({
     leftWidth: doc.layout.left, rightWidth: doc.layout.right, bottomHeight: doc.layout.bottom,
   });
-  void p;
+  // CP10: restore terrain exaggeration (visual setting)
+  if (typeof doc.workspace.terrainExaggeration === "number") {
+    useStore.getState().setTerrainExaggeration(doc.workspace.terrainExaggeration);
+  }
   return { camera: doc.workspace.camera, viewLayout: doc.workspace.viewLayout };
 }

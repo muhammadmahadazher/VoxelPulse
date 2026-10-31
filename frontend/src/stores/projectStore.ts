@@ -22,6 +22,8 @@ export interface Layer {
   terrain?: boolean;
   /** Raster layers: dataset id of an imagery raster draped on this terrain. */
   drapeDatasetId?: string;
+  /** CP10: persisted raster display style (engine snapshot at save time). */
+  rasterStyle?: Record<string, unknown>;
 }
 
 /** Persistent dataset reference in project state (§35, §78) — descriptors
@@ -37,7 +39,7 @@ export interface ProjectDatasetRef {
 
 export interface ProjectMeta {
   name: string;
-  formatVersion: 3;
+  formatVersion: 4;
   created: string;
 }
 
@@ -88,7 +90,7 @@ function saveRecents(r: string[]) {
 }
 
 export const newProjectMeta = (name = "Untitled Project"): ProjectMeta => ({
-  name, formatVersion: 3, created: new Date().toISOString(),
+  name, formatVersion: 4, created: new Date().toISOString(),
 });
 
 export const useProjectStore = create<ProjectState>((set, get) => ({
