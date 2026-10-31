@@ -212,6 +212,7 @@ export default function App() {
     attachStreaming: ({ descriptor, source }) => {
       void (async () => {
         appendConsole("streaming: opening hierarchy for " + descriptor.name);
+        const openT0 = performance.now();
         const runtime = await CopcStreamRuntime.open(descriptor.id, source, {
           onNodeReady: () => { /* renderer reads via streamingRegistry */ },
           onNodeEvicted: () => { /* StreamingClouds disposes geometry */ },
@@ -239,6 +240,7 @@ export default function App() {
         const mode = useUiStore.getState().perfMode;
         const budget = mode === "efficiency" ? 500_000 : mode === "quality" ? 3_000_000 : 1_500_000;
         runtime.setPointBudget(budget);
+        runtime.openStartedAt = openT0;
         streamingRegistry.set(descriptor.id, runtime);
         // §69: frame in RENDER space (world bounds minus the origin) — the
         // camera lives in render coordinates.

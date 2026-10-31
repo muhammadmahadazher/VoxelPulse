@@ -5,7 +5,7 @@
  *  memory budget. Engine-owned — React observes only throttled metrics. */
 import type { DataSource } from "../data/source/types";
 import { CopcHierarchy } from "./hierarchy";
-import { keyId, type PointCloudNode, type VoxelKey } from "./node";
+import { keyId, levelSpacing, type PointCloudNode, type VoxelKey } from "./node";
 import { schedule, toTraversal, type CameraState, type SchedulerOptions } from "./scheduler";
 import { prepareNodeData, type PreparedNode } from "../data/workers/client";
 import { isCancelledError } from "../data/errors";
@@ -44,6 +44,16 @@ interface NodeEntry {
   failed?: boolean;
 }
 
+/** §11–12: hierarchy-page discovery state — a page is requested once,
+ *  retried with bounded backoff on failure, never re-requested per frame. */
+type DiscoveryState = "unknown" | "queued" | "loading" | "loaded" | "failed";
+
+interface DiscoveryRecord {
+  state: DiscoveryState;
+  attempts: number;
+  nextAttemptAt: number;
+}
+
 const DEFAULT_PREPARED_BUDGET = 384 * 1024 * 1024; // prepared render bytes (§22)
 const DEFAULT_BYTES_BUDGET = 256 * 1024 * 1024;    // fetched (compressed/raw) bytes cache
 
@@ -55,7 +65,10 @@ export class CopcStreamRuntime {
   hooks: StreamRuntimeHooks;
   private nodes = new Map<string, NodeEntry>();
   private inFlight = new Map<string, AbortController>();
-  private pendingPages = new Set<string>();
+  /** §11: per-node discovery state (replaces the old re-request-every-pass). */
+  private discovery = new Map<string, DiscoveryRecord>();
+  private static DISCOVERY_MAX_ATTEMPTS = 3;
+  private static DISCOVERY_BACKOFF_MS = 2000;
   private schedOpts: SchedulerOptions;
   private preparedBudget: number;
   private bytesBudget: number;
@@ -114,10 +127,37 @@ export class CopcStreamRuntime {
    *  traversal + request dispatch (bounded by budget, §35). */
   /** §73: diagnostic — number of update() calls (scheduler cadence check). */
   updateCount = 0;
+  /** §49: bench timing — ms ticks the harness reads. */
+  openStartedAt = 0;
+  firstNodeReadyAt = 0;
+
+  /** §20/§66: last-scheduler-input fingerprint — when the camera is static
+   *  and no work is in flight or pending, update() skips the traversal
+   *  entirely (idle CPU falls to ~zero, no allocation churn). */
+  private lastCamKey = "";
+  private lastVpKey = "";
 
   async update(camera: CameraState, viewProjMatrix: number[]): Promise<StreamingMetrics> {
     this.updateCount++;
     if (this.disposed) return this.metrics;
+    const camKey = camera.position.map((v) => v.toFixed(2)).join(",") + "|" + camera.viewportHeight;
+    const vpKey = viewProjMatrix.map((v) => v.toFixed(4)).join(",");
+    // §11: pending hierarchy-page loads don't count as inFlight — the idle
+    // check must treat a loading/queued discovery as active work, otherwise
+    // newly discovered subtrees would stall until the camera moves.
+    let discoveryPending = false;
+    for (const [, rec] of this.discovery) {
+      if (rec.state === "loading" || rec.state === "queued") { discoveryPending = true; break; }
+    }
+    const idle =
+      camKey === this.lastCamKey &&
+      vpKey === this.lastVpKey &&
+      this.inFlight.size === 0 &&
+      this.metrics.queued === 0 &&
+      !discoveryPending;
+    if (idle) return this.metrics;
+    this.lastCamKey = camKey;
+    this.lastVpKey = vpKey;
     // Ensure the root page is loaded before first traversal.
     await this.hierarchy.ensureLoaded(this.rootKey);
     this.ensureChildrenDiscovered(this.rootKey);
@@ -219,15 +259,29 @@ export class CopcStreamRuntime {
 
   private async loadPageFor(key: VoxelKey): Promise<void> {
     const id = keyId(key);
-    if (this.pendingPages.has(id)) return;
-    this.pendingPages.add(id);
+    const rec = this.discovery.get(id) ?? { state: "unknown" as DiscoveryState, attempts: 0, nextAttemptAt: 0 };
+    this.discovery.set(id, rec);
+    if (rec.state === "loaded" || rec.state === "loading" || rec.state === "queued") return;
+    if (rec.state === "failed") {
+      // §12: bounded retries with backoff — no per-frame network storms
+      if (rec.attempts >= CopcStreamRuntime.DISCOVERY_MAX_ATTEMPTS) return;
+      if (performance.now() < rec.nextAttemptAt) return;
+    }
+    rec.state = "queued";
     try {
+      rec.state = "loading";
       await this.hierarchy.ensureLoaded(key);
       this.ensureChildrenDiscovered(key);
+      rec.state = "loaded";
     } catch (e) {
-      if (!isCancelledError(e)) log.warn(`hierarchy page load failed for ${id}`, e);
-    } finally {
-      this.pendingPages.delete(id);
+      if (isCancelledError(e)) {
+        rec.state = "unknown";
+      } else {
+        rec.attempts++;
+        rec.state = "failed";
+        rec.nextAttemptAt = performance.now() + CopcStreamRuntime.DISCOVERY_BACKOFF_MS * rec.attempts;
+        log.warn(`hierarchy page load failed for ${id} (attempt ${rec.attempts})`, e);
+      }
     }
   }
 
@@ -268,6 +322,7 @@ export class CopcStreamRuntime {
       entry.prepared = prepared;
       entry.bytes = bytes.byteLength;
       entry.node.pointCount = prepared.pointCount;
+      if (!this.firstNodeReadyAt) this.firstNodeReadyAt = performance.now();
       // precise world bounds from actual points (§37, §105)
       entry.node.bounds = {
         min: prepared.worldBounds.min,
@@ -326,6 +381,13 @@ export class CopcStreamRuntime {
     return this.metrics;
   }
 
+  /** §27: the point spacing of a node (root spacing halved per level). */
+  nodeSpacing(nodeId: string): number {
+    const e = this.nodes.get(nodeId);
+    if (!e) return 0;
+    return levelSpacing(this.hierarchy.info.spacing, e.node.level);
+  }
+
   /** Render-space root bounds (world minus origin) for camera fitting. */
   rootRenderBounds(): { min: [number, number, number]; max: [number, number, number] } | null {
     const b = this.hierarchy.rootBounds;
@@ -365,6 +427,7 @@ export class CopcStreamRuntime {
     this.disposed = true;
     for (const [, ctrl] of this.inFlight) ctrl.abort();
     this.inFlight.clear();
+    this.discovery.clear();
     for (const [id, e] of this.nodes) {
       if (e.prepared) this.hooks.onNodeEvicted(id);
     }

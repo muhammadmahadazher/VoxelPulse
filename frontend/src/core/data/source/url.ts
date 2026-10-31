@@ -10,6 +10,33 @@ import { clampRange } from "./types";
 
 const log = createLogger("url-source");
 
+/** §9–10: request diagnostics — exact byte accounting, exposed for the dev
+ *  bench harness. Network bytes count GET bodies once; cache hits are
+ *  counted separately and never re-counted; aborted requests add nothing. */
+export const urlSourceStats = {
+  requestsStarted: 0,
+  requestsCompleted: 0,
+  requestsAborted: 0,
+  requestsFailed: 0,
+  bytesFromNetwork: 0,
+  bytesFromCache: 0,
+  cacheHits: 0,
+  cacheMisses: 0,
+  largestRequest: 0,
+};
+
+export function resetUrlSourceStats(): void {
+  urlSourceStats.requestsStarted = 0;
+  urlSourceStats.requestsCompleted = 0;
+  urlSourceStats.requestsAborted = 0;
+  urlSourceStats.requestsFailed = 0;
+  urlSourceStats.bytesFromNetwork = 0;
+  urlSourceStats.bytesFromCache = 0;
+  urlSourceStats.cacheHits = 0;
+  urlSourceStats.cacheMisses = 0;
+  urlSourceStats.largestRequest = 0;
+}
+
 const DEFAULT_CACHE_BUDGET = 32 * 1024 * 1024; // 32 MB — small, on purpose (§45)
 
 /** Simple exact-range LRU cache: overlapping ranges intentionally miss; a
@@ -117,7 +144,12 @@ export class UrlSource implements DataSource {
 
     if (range && this.rangesSupported !== false) {
       const cached = this.cache.get(this.url, range);
-      if (cached) return cached.slice(0); // copy: callers own their buffer
+      if (cached) {
+        urlSourceStats.cacheHits++;
+        urlSourceStats.bytesFromCache += cached.byteLength;
+        return cached.slice(0); // copy: callers own their buffer
+      }
+      urlSourceStats.cacheMisses++;
       const res = await this.fetchRange(range, signal);
       if (res.partial) this.rangesSupported = true;
       this.cache.put(this.url, range, res.buffer);
@@ -165,24 +197,34 @@ export class UrlSource implements DataSource {
   /** Single HTTP call site. Plain browser fetch (client-side HTTP request to
    *  the dataset URL) — no subprocess, no shell, no dynamic code execution. */
   private async doFetch(init: RequestInit): Promise<FetchResult & { headers: Headers }> {
+    urlSourceStats.requestsStarted++;
     let res: Response;
     try {
       res = await fetch(new Request(this.url, init));
     } catch (e) {
       if ((init.signal as AbortSignal | undefined)?.aborted || (e as { name?: string })?.name === "AbortError") {
+        urlSourceStats.requestsAborted++;
         throw cancellationError();
       }
+      urlSourceStats.requestsFailed++;
       throw toVpDataError(e, "network-failed", `Network error while fetching ${this.url}`, {
         source: "url", url: this.url, hint: "check the URL and CORS headers",
       });
     }
     if (!res.ok) {
+      urlSourceStats.requestsFailed++;
       throw new VpDataError("network-failed", `Server responded ${res.status} for ${this.url}`, {
         detail: `HTTP ${res.status} ${res.statusText}`, context: { source: "url", url: this.url },
       });
     }
+    const buffer = await res.arrayBuffer();
+    if (init.method !== "HEAD") {
+      urlSourceStats.requestsCompleted++;
+      urlSourceStats.bytesFromNetwork += buffer.byteLength;
+      urlSourceStats.largestRequest = Math.max(urlSourceStats.largestRequest, buffer.byteLength);
+    }
     return {
-      buffer: await res.arrayBuffer(),
+      buffer,
       status: res.status,
       partial: res.status === 206,
       headers: res.headers,

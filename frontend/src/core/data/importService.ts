@@ -59,13 +59,6 @@ export const importService = {
     const ctrl = new AbortController();
     running.set(job.id, ctrl);
     try {
-      const size = await source.size().catch(() => undefined);
-      if (size !== undefined && size > WHOLE_FILE_LIMIT) {
-        throw new VpDataError("out-of-memory", "This dataset is too large for the current browser loader.", {
-          detail: `${(size / 1e6).toFixed(0)} MB — large-file streaming support is planned for the massive-data phase.`,
-        });
-      }
-
       perfMark("vp:import:probe:start");
       jobStore.setStatus(job.id, "probing", { message: "detecting format" });
       const { dataset } = await datasetManager.openSource(source, {
@@ -76,6 +69,18 @@ export const importService = {
       perfMark("vp:import:probe:end");
 
       const hierarchical = FORMAT_CAPABILITIES[dataset.info.format]?.hierarchical === true;
+      // §116-117: the whole-file size guard applies ONLY to whole-file decode
+      // paths — hierarchical (COPC) datasets stream by range and never read
+      // the complete source, so multi-GB files are expected here.
+      if (!hierarchical) {
+        const size = await source.size().catch(() => undefined);
+        if (size !== undefined && size > WHOLE_FILE_LIMIT) {
+          dataset.dispose();
+          throw new VpDataError("out-of-memory", "This dataset is too large for the current browser loader.", {
+            detail: `${(size / 1e6).toFixed(0)} MB — convert to COPC for streaming, or use a smaller file.`,
+          });
+        }
+      }
       if (hierarchical) {
         // §52–54, §69: metadata already frames the dataset — points stream in.
         jobStore.setStatus(job.id, "creating-layer", { message: "attaching streaming" });

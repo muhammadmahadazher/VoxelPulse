@@ -1,0 +1,37 @@
+name: COPC Acceptance
+
+# §52: the COPC streaming acceptance suite runs here (scheduled + manual).
+# Network-free: local fixtures + a local HTTP range server (§53). The
+# gigabyte-scale public-host benchmarks stay manual (bench-copc.mjs).
+
+on:
+  schedule:
+    - cron: "0 4 * * *" # daily 04:00 UTC
+  workflow_dispatch:
+
+jobs:
+  copc-acceptance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install
+        run: npm ci
+        working-directory: frontend
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+        working-directory: frontend
+      - name: Unit tests
+        run: npx vitest run
+        working-directory: frontend
+      - name: COPC acceptance (streaming, refinement, cleanup)
+        run: npx playwright test tests/copc.e2e.ts
+        working-directory: frontend
+      - name: Interaction regression
+        run: npx playwright test tests/interactions.e2e.ts
+        working-directory: frontend

@@ -35,6 +35,16 @@ export const streamingRegistry = {
     if (typeof window !== "undefined") {
       (window as unknown as { __vpStreaming?: Map<string, CopcStreamRuntime> }).__vpStreaming = runtimes;
     }
+    // §10: reset per-import source stats so each bench run starts clean
+    void (async () => {
+      try {
+        const { resetUrlSourceStats, urlSourceStats } = await import("../data/source/url");
+        resetUrlSourceStats();
+        if (typeof window !== "undefined") {
+          (window as unknown as { __vpSourceStats?: typeof urlSourceStats }).__vpSourceStats = urlSourceStats;
+        }
+      } catch { /* non-DOM */ }
+    })();
     rt.hooks = {
       ...rt.hooks,
       onMetrics: publishMetrics,

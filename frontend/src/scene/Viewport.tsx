@@ -34,6 +34,7 @@ function PointCloud() {
   const geomRef = useRef<THREE.BufferGeometry>(null!);
   const matRef = useRef<THREE.ShaderMaterial>(null!);
   const raycaster = useThree((s) => s.raycaster);
+  const cameraRef = useThree((s) => s.camera);
   raycaster.params.Points.threshold = 0.25;
 
   const buffers = useMemo(
@@ -86,6 +87,12 @@ function PointCloud() {
     (mat.uniforms.roiMax.value as THREE.Vector3).set(s.roi.xMax, s.roi.yMax, s.roi.zMax);
     mat.uniforms.heightMin.value = s.heightRange.min;
     mat.uniforms.heightMax.value = s.heightRange.max;
+    // §27: keep projected-spacing scale current (no nodeSpacing attr here —
+    // the term is 0 for non-streamed clouds, so base sizing applies)
+    const pc = cameraRef as THREE.PerspectiveCamera;
+    if (pc.isPerspectiveCamera) {
+      mat.uniforms.projScale.value = window.innerHeight / (2 * Math.tan((pc.fov * Math.PI) / 360));
+    }
   });
 
   const handlePointerMove = (e: ThreeEvent<PointerEvent>) => {

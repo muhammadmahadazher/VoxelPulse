@@ -69,11 +69,14 @@ vec3 zones(float r) {
 
 export const vertexShader = /* glsl */ `
 attribute float intensity;
+attribute float nodeSpacing; // per-node point spacing (0 for non-streamed clouds)
 varying float vIntensity;
 varying float vRange;
 varying float vHeight;
 varying vec3 vWorldPos;
 uniform float pointSize;
+uniform float projScale;    // viewportHeight / (2 tan(fov/2)) — px per world unit at 1m
+uniform float spacingFill;  // point-diameter multiple of projected spacing (§27–28)
 void main() {
   vIntensity = intensity;
   vRange = length(position.xy);
@@ -81,8 +84,12 @@ void main() {
   vWorldPos = position;
   vec4 mv = modelViewMatrix * vec4(position, 1.0);
   float dist = -mv.z;
-  // natural perspective falloff 1/d, clamped to crisp sample sizes
-  gl_PointSize = clamp(pointSize * (26.0 / max(dist, 0.5)), 1.0, 9.0);
+  // §27: two-term size — the analytical base term, plus a camera-fit term
+  // derived from the node's projected point spacing so coarse frame-all
+  // views communicate shape instead of collapsing to 1px dust (§28).
+  float base = pointSize * (26.0 / max(dist, 0.5));
+  float fit = (nodeSpacing * spacingFill) * projScale / max(dist, 0.5);
+  gl_PointSize = clamp(max(base, fit), 1.0, 14.0);
   gl_Position = projectionMatrix * mv;
 }
 `;
@@ -134,7 +141,7 @@ export const COLORMAP_INDEX: Record<string, number> = {
 
 export function makeColormapUniforms() {
   return {
-    pointSize: { value: 2.4 },
+    pointSize: { value: 3.0 },
     colormapMode: { value: 0 },
     maxRange: { value: 80.0 },
     intensityMin: { value: 0.0 },
@@ -142,5 +149,7 @@ export function makeColormapUniforms() {
     roiMax: { value: new THREE.Vector3(80, 40, 40) },
     heightMin: { value: 0.0 },
     heightMax: { value: 10.0 },
+    projScale: { value: 900.0 },  // §27: updated per frame from camera/viewport
+    spacingFill: { value: 1.2 },  // point diameter as multiple of projected spacing
   } as Record<string, THREE.IUniform>;
 }

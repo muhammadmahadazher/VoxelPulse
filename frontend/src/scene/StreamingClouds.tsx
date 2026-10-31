@@ -59,6 +59,7 @@ export function StreamingClouds() {
     mat.uniforms.intensityMin.value = st.intensityMin;
     (mat.uniforms.roiMin.value as THREE.Vector3).set(st.roi.xMin, st.roi.yMin, st.roi.zMin);
     (mat.uniforms.roiMax.value as THREE.Vector3).set(st.roi.xMax, st.roi.yMax, st.roi.zMax);
+
     // stable global height range from dataset metadata (§62)
     for (const ds of datasets) {
       const b = ds.metadata.bounds as { min: number[]; max: number[] } | undefined;
@@ -71,6 +72,8 @@ export function StreamingClouds() {
     mat.visible = st.showPoints;
 
     const cam = camera as THREE.PerspectiveCamera;
+    // §27: projected-spacing scale for camera-fit point sizing
+    mat.uniforms.projScale.value = window.innerHeight / (2 * Math.tan((cam.fov * Math.PI) / 360));
     // §97–98: adapt the far plane to the streamed scene scale — the Phase 1
     // default (500) cannot contain city-scale render bounds on iGPU.
     for (const rt of runtimes) {
@@ -121,6 +124,10 @@ export function StreamingClouds() {
           if (prepared.classification) {
             geom.setAttribute("classification", new THREE.BufferAttribute(prepared.classification, 1));
           }
+          // §27: per-node spacing drives the camera-fit point-size term
+          const spacing = rt.nodeSpacing(nodeId);
+          const spacingAttr = new Float32Array(prepared.pointCount).fill(spacing);
+          geom.setAttribute("nodeSpacing", new THREE.BufferAttribute(spacingAttr, 1));
           geom.computeBoundingSphere();
           const pts = new THREE.Points(geom, mat);
           pts.frustumCulled = true;
