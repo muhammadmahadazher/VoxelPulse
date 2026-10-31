@@ -13,6 +13,7 @@ export default defineConfig({
   use: {
     baseURL: `http://localhost:${PORT}`,
     viewport: { width: 1280, height: 720 },
+    launchOptions: process.env.VP_NO_PROXY ? { args: ["--no-proxy-server"] } : {},
   },
   expect: {
     toHaveScreenshot: { maxDiffPixelRatio: 0.03, animations: "disabled" },

@@ -346,6 +346,9 @@ test("project save/reload with relink of a missing local source (§47–48, §11
   });
   // Inspector no longer shows the missing state (async relink completes)
   await expect(locate).toHaveCount(0, { timeout: 15000 });
-  const lines = await consoleLines(page);
-  expect(lines.some((l) => l.includes("relinked tiny.pcd"))).toBe(true);
+  // The "relinked" console line lands ~1 decode after the id-swap hides the
+  // Locate button — poll instead of reading synchronously (race observed on
+  // faster local runs where the read beat the decode).
+  await expect.poll(async () => consoleLines(page), { timeout: 15000 })
+    .toEqual(expect.arrayContaining([expect.stringContaining("relinked tiny.pcd")]));
 });
