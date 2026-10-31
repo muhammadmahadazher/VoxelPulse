@@ -187,6 +187,7 @@ function MapContents({ onProbe }: { onProbe: (text: string) => void }) {
         if (!rec) {
           const rgba = packTileRgba({
             raw: decoded.raw, width: decoded.width, height: decoded.height,
+            stride: decoded.bufWidth,
             samples: decoded.samples, sampleType: decoded.sampleType,
             nodata, style,
           });
@@ -215,6 +216,7 @@ function MapContents({ onProbe }: { onProbe: (text: string) => void }) {
           // style changed → re-pack (raw data untouched, display-only)
           const rgba = packTileRgba({
             raw: decoded.raw, width: decoded.width, height: decoded.height,
+            stride: decoded.bufWidth,
             samples: decoded.samples, sampleType: decoded.sampleType,
             nodata, style,
           });

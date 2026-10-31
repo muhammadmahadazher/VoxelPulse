@@ -193,6 +193,16 @@ export function InspectorPanel() {
                       })()}
                     </PropertyRow>
                     <StyleStatsRow key={styleTick} datasetId={layer.datasetId} />
+                    <PropertyRow label="3D terrain">
+                      <Switch label="" checked={layer.terrain ?? false}
+                        onChange={(v) => updateLayer(layer.id, { terrain: v })} />
+                    </PropertyRow>
+                    {layer.terrain && (
+                      <PropertyRow label="Exaggeration">
+                        <Stepper value={t.terrainExaggeration} step={0.5} min={0.5} max={10}
+                          onChange={t.setTerrainExaggeration} format={(v) => `${v.toFixed(1)}×`} />
+                      </PropertyRow>
+                    )}
                     <Slider label="Opacity" value={layer.opacity} min={0.1} max={1} step={0.05}
                       onChange={(v) => updateLayer(layer.id, { opacity: v })}
                       format={(v) => `${(v * 100) | 0}%`} />

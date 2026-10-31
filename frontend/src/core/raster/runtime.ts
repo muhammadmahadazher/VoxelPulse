@@ -30,9 +30,13 @@ export interface RasterRuntimeHooks {
 }
 
 /** One decoded tile: RAW interleaved samples (never quantized — probing and
- *  terrain sampling read this) + level metadata for display packing. */
+ *  terrain sampling read this) + level metadata for display packing. The
+ *  buffer includes one extra right/bottom column/row (bufWidth ≥ width) so
+ *  neighboring terrain tiles share exact corner samples (CP6 seams). */
 export interface DecodedTile {
   width: number;
+  /** Buffer row stride in pixels (≥ width — the +1 seam column). */
+  bufWidth: number;
   height: number;
   samples: number;
   sampleType: SampleType;
@@ -250,12 +254,14 @@ export class RasterStreamRuntime {
       if (!level) throw new Error(`no image for factor ${tile.factor}`);
       const image = await this.tiff.getImage(level.imageIndex);
       // tile.px is ALREADY in this level's pixel units (§13: the overview
-      // factor is never applied twice) — clamp defensively to real dims
+      // factor is never applied twice) — clamp defensively to real dims, and
+      // extend +1 right/bottom for the terrain seam column (CP6: shared
+      // corner samples between neighboring tiles)
       const w = image.getWidth(), h = image.getHeight();
       const [c0, r0, c1, r1] = tile.px;
       const window_: [number, number, number, number] = [
         Math.max(0, Math.min(c0, w)), Math.max(0, Math.min(r0, h)),
-        Math.max(0, Math.min(c1, w)), Math.max(0, Math.min(r1, h)),
+        Math.max(0, Math.min(c1 + 1, w)), Math.max(0, Math.min(r1 + 1, h)),
       ];
       if (window_[2] <= window_[0] || window_[3] <= window_[1]) throw new Error("empty tile window");
       // interleave:true → ONE buffer in native sample order/dtype (§26);
@@ -264,15 +270,16 @@ export class RasterStreamRuntime {
         window: window_, interleave: true, signal: ctrl.signal,
       }) as unknown as { width: number; height: number; data: DecodedTile["raw"] } | DecodedTile["raw"] | DecodedTile["raw"][];
       const raw = (Array.isArray(read) ? read[0] : read) as DecodedTile["raw"];
-      const width = window_[2] - window_[0];
-      const height = window_[3] - window_[1];
+      const width = tile.px[2] - tile.px[0];
+      const height = tile.px[3] - tile.px[1];
+      const bufWidth = window_[2] - window_[0];
       const samples = image.getSamplesPerPixel();
-      const bytes = width * height * samples * (BYTES_PER[this.descriptor.sampleType] ?? 1);
+      const bytes = bufWidth * (window_[3] - window_[1]) * samples * (BYTES_PER[this.descriptor.sampleType] ?? 1);
       if (this.disposed) return;
       entry.state = "ready";
       entry.bytes = bytes;
       entry.lastUsed = performance.now();
-      entry.decoded = { width, height, samples, sampleType: this.descriptor.sampleType, raw, tile };
+      entry.decoded = { width, bufWidth, height, samples, sampleType: this.descriptor.sampleType, raw, tile };
       this.hooks.onTileReady(tile);
     } catch (e) {
       if (isCancelledError(e)) {
@@ -334,7 +341,7 @@ export class RasterStreamRuntime {
       if (lc < 0 || lr < 0 || lc >= d.width || lr >= d.height) continue;
       const values: number[] = [];
       for (let s = 0; s < d.samples; s++) {
-        values.push(Number(d.raw[(lr * d.width + lc) * d.samples + s]));
+        values.push(Number(d.raw[(lr * d.bufWidth + lc) * d.samples + s]));
       }
       const nodata = this.descriptor.bands.some(
         (b) => b.nodata !== undefined && Number.isFinite(b.nodata) && values[0] === b.nodata,

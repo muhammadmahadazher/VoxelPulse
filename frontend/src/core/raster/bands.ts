@@ -31,10 +31,13 @@ export const DEFAULT_RASTER_STYLE: RasterStyle = {
 };
 
 export interface PackInput {
-  /** Interleaved samples: length = width·height·samples. */
+  /** Interleaved samples of one tile; row stride = `stride` pixels (defaults
+   *  to width — the runtime buffer may be +1 wider for terrain seams). */
   raw: RawSamples;
   width: number;
   height: number;
+  /** Row stride in pixels (≥ width). Default: width. */
+  stride?: number;
   samples: number;
   sampleType: SampleType;
   /** Per-band nodata values (index = band). */
@@ -47,8 +50,9 @@ export interface PackInput {
  *  RGBA band-3 alpha when present. Returns null for empty input. */
 export function packTileRgba(input: PackInput): Uint8ClampedArray | null {
   const { raw, width, height, samples, sampleType, nodata, style } = input;
+  const stride = input.stride ?? width;
   const count = width * height;
-  if (count === 0 || samples <= 0 || raw.length < count * samples) return null;
+  if (count === 0 || samples <= 0 || raw.length < (stride * (height - 1) + width) * samples) return null;
 
   const out = new Uint8ClampedArray(count * 4);
   const bandCount = samples;
@@ -58,7 +62,7 @@ export function packTileRgba(input: PackInput): Uint8ClampedArray | null {
   if (mode === "auto") mode = bandCount >= 3 ? "rgb" : "grayscale";
 
   // stretch function: raw value → normalized 0..1
-  const stretch = resolveStretch(style.stretch, sampleType, raw, samples);
+  const stretch = resolveStretch(style.stretch, sampleType, raw, samples, stride);
 
   // per-band nodata lookup closure
   const isNodata = nodata && nodata.some((v) => v !== undefined)
@@ -69,36 +73,40 @@ export function packTileRgba(input: PackInput): Uint8ClampedArray | null {
     : null;
 
   const values: number[] = new Array(bandCount);
-  for (let p = 0; p < count; p++) {
-    for (let b = 0; b < bandCount; b++) values[b] = Number(raw[p * bandCount + b]);
+  let o = 0;
+  for (let row = 0; row < height; row++) {
+    for (let col = 0; col < width; col++) {
+      const base = (row * stride + col) * samples;
+      for (let b = 0; b < bandCount; b++) values[b] = Number(raw[base + b]);
 
-    let r = 0, g = 0, b2 = 0, a = 255;
+      let rr = 0, gg = 0, bb = 0, a = 255;
 
-    if (mode === "rgb") {
-      const rb = style.rgbBands ?? [0, 1, 2];
-      r = stretch(values[rb[0]] ?? 0);
-      g = stretch(values[rb[1] ?? 1] ?? 0);
-      b2 = stretch(values[rb[2] ?? 2] ?? 0);
-      if (bandCount >= 4) {
-        // RGBA: band 3 carries data alpha (× bit depth)
-        a = Math.round((values[3] as number) * (255 / (bitMax(sampleType) || 255)));
+      if (mode === "rgb") {
+        const rb = style.rgbBands ?? [0, 1, 2];
+        rr = stretch(values[rb[0]] ?? 0);
+        gg = stretch(values[rb[1] ?? 1] ?? 0);
+        bb = stretch(values[rb[2] ?? 2] ?? 0);
+        if (bandCount >= 4) {
+          // RGBA: band 3 carries data alpha (× bit depth)
+          a = Math.round((values[3] as number) * (255 / (bitMax(sampleType) || 255)));
+        }
+      } else if (mode === "grayscale") {
+        const v = stretch(values[0]);
+        rr = gg = bb = v;
+      } else {
+        // pseudocolor: normalized band 0 through the perceptual ramp
+        const t = stretch(values[0]);
+        const idx = Math.min(TURBO.length - 1, Math.max(0, Math.round(t * (TURBO.length - 1))));
+        [rr, gg, bb] = TURBO[idx];
       }
-    } else if (mode === "grayscale") {
-      const v = stretch(values[0]);
-      r = g = b2 = v;
-    } else {
-      // pseudocolor: normalized band 0 through the perceptual ramp
-      const t = stretch(values[0]);
-      const idx = Math.min(TURBO.length - 1, Math.max(0, Math.round(t * (TURBO.length - 1))));
-      [r, g, b2] = TURBO[idx];
-    }
 
-    if (isNodata?.(values, 0) || (mode === "rgb" && bandCount >= 4 && isNodata?.(values, 3))) {
-      if (style.nodataTransparent) a = 0;
-    }
+      if (isNodata?.(values, 0) || (mode === "rgb" && bandCount >= 4 && isNodata?.(values, 3))) {
+        if (style.nodataTransparent) a = 0;
+      }
 
-    const o = p * 4;
-    out[o] = r; out[o + 1] = g; out[o + 2] = b2; out[o + 3] = a;
+      out[o] = rr; out[o + 1] = gg; out[o + 2] = bb; out[o + 3] = a;
+      o += 4;
+    }
   }
   return out;
 }
@@ -112,6 +120,7 @@ function resolveStretch(
   sampleType: SampleType,
   raw: RawSamples,
   samples: number,
+  stride: number,
 ): (v: number) => number {
   if (stretch && Number.isFinite(stretch.max - stretch.min) && stretch.max > stretch.min) {
     const { min, max } = stretch;
@@ -119,10 +128,12 @@ function resolveStretch(
     return (v) => Math.min(255, Math.max(0, Math.round((v - min) * k)));
   }
   if (isFloat(sampleType)) {
-    // measured tile min/max over band 0 (deterministic full scan)
+    // measured tile min/max over band 0 (deterministic scan, stride-aware)
+    const width = stride;
     let min = Infinity, max = -Infinity;
-    for (let p = 0; p < raw.length; p += samples) {
-      const v = Number(raw[p]);
+    for (let p = 0; p < raw.length / samples; p++) {
+      const r = Math.floor(p / width), c = p % width;
+      const v = Number(raw[(r * width + c) * samples]);
       if (!Number.isFinite(v)) continue;
       if (v < min) min = v;
       if (v > max) max = v;

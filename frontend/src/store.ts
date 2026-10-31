@@ -85,6 +85,8 @@ interface VoxelState {
   pointSize: number;
   colormap: Colormap;
   intensityMin: number;
+  /** Terrain vertical exaggeration (CP6): 1 = true elevations. */
+  terrainExaggeration: number;
   paused: boolean;
   roi: RoiBounds;
 
@@ -111,6 +113,7 @@ interface VoxelState {
 
   toggle: (k: "showPoints" | "showGround" | "showBoxes" | "showRadar" | "showPostFx" | "showEdl" | "showDensity" | "showCropGizmo" | "paused" | "rulerActive" | "inspectEnabled" | "paletteOpen" | "pipLarge") => void;
   setPoint: (v: number) => void;
+  setTerrainExaggeration: (v: number) => void;
   setColormap: (c: Colormap) => void;
   cycleColormap: () => void;
   setIntensity: (v: number) => void;
@@ -160,6 +163,7 @@ export const useStore = create<VoxelState>((set, get) => ({
   showDensity: false,
   showCropGizmo: false,
   pointSize: 3.0,
+  terrainExaggeration: 1,
   colormap: "height",
   intensityMin: 0,
   paused: false,
@@ -183,6 +187,7 @@ export const useStore = create<VoxelState>((set, get) => ({
 
   toggle: (k) => set((s) => ({ [k]: !s[k] }) as Partial<VoxelState>),
   setPoint: (v) => set({ pointSize: v }),
+  setTerrainExaggeration: (v) => set({ terrainExaggeration: Math.max(0.1, Math.min(10, v)) }),
   setColormap: (c) => set({ colormap: c }),
   cycleColormap: () =>
     set((s) => ({ colormap: COLORMAPS[(COLORMAPS.indexOf(s.colormap) + 1) % COLORMAPS.length] })),

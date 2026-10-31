@@ -18,6 +18,8 @@ export interface Layer {
   datasetId?: string;
   pointCount?: number;
   bounds?: [number, number, number, number, number, number]; // xmin ymin zmin xmax ymax zmax
+  /** Raster layers: render the DEM as 3D terrain in the perspective scene. */
+  terrain?: boolean;
 }
 
 /** Persistent dataset reference in project state (§35, §78) — descriptors

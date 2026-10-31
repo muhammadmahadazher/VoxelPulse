@@ -15,6 +15,7 @@ import { CropGizmo } from "./CropGizmo";
 import { measurePoints } from "../core/spatial/measure";
 import { projectReference, renderOrigin } from "../utils/projectSpatial";
 import { StreamingClouds } from "./StreamingClouds";
+import { TerrainLayer } from "./TerrainLayer";
 import { MapWorkspace } from "./MapWorkspace";
 
 const MAX_POINTS = 60000;
@@ -214,6 +215,7 @@ function SceneContents({ perspective = true }: { perspective?: boolean }) {
     <>
       <PointCloud />
       <StreamingClouds />
+      <TerrainLayer />
       <EgoFrame />
       <Ruler />
       <CropGizmo />

@@ -399,6 +399,14 @@ export default function App() {
   useEffect(() => {
     const onSaveAs = () => saveProject(true);
     document.addEventListener("vp-save-as", onSaveAs);
+    // CP6: terrain (and any engine-driven bounds) request 3D camera framing
+    const onFrameBounds = (e: Event) => {
+      const d = (e as CustomEvent<number[]>).detail;
+      if (Array.isArray(d) && d.length === 6) {
+        handleRef.current?.frameBounds([d[0], d[1], d[2], d[3], d[4], d[5]]);
+      }
+    };
+    document.addEventListener("vp-frame-bounds", onFrameBounds);
     // §17, §74: project CRS changes re-transform displayed compatible layers.
     const onSetCrs = async (e: Event) => {
       const crsId = (e as CustomEvent<string>).detail;
@@ -437,6 +445,7 @@ export default function App() {
     return () => {
       window.removeEventListener("keydown", onKey);
       document.removeEventListener("vp-save-as", onSaveAs);
+      document.removeEventListener("vp-frame-bounds", onFrameBounds);
       document.removeEventListener("vp-set-crs", onSetCrs);
     };
   }, []);
