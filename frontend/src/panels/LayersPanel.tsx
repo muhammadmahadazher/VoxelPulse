@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Eye, EyeOff, Lock, Box, Radio, Camera, Crosshair, ChevronRight, Plus } from "lucide-react";
+import { Eye, EyeOff, Lock, Box, Radio, Camera, Crosshair, ChevronRight, Plus, Map as MapIcon } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useProjectStore, type Layer, type LayerType } from "../stores/projectStore";
 import { ContextMenu, type MenuItem } from "../app/ContextMenu";
@@ -16,11 +16,13 @@ const TYPE_ICON: Record<LayerType, React.ReactNode> = {
   camera: <Camera size={14} />,
   reference: <Crosshair size={14} />,
   group: <ChevronRight size={14} />,
+  raster: <MapIcon size={14} />,
 };
 
 const GROUPS: { title: string; types: LayerType[] }[] = [
   { title: "LiDAR", types: ["pointcloud"] },
   { title: "Perception", types: ["detections", "camera"] },
+  { title: "GIS", types: ["raster"] },
   { title: "Scene", types: ["reference", "group"] },
 ];
 

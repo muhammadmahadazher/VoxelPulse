@@ -31,6 +31,10 @@ export interface ImportHooks {
   /** Layer creation for hierarchical imports (no decoded chunk exists yet —
    *  metadata-only, §69). */
   createStreamingLayer: (ctx: { descriptor: DatasetDescriptor; sourceLabel: string }) => void;
+  /** Raster path (B: dispatch is on the opened dataset's kind — the app
+   *  creates the layer and attaches the raster streaming runtime). */
+  createRasterLayer?: (ctx: { descriptor: DatasetDescriptor; sourceLabel: string }) => void;
+  attachRaster?: (ctx: { descriptor: DatasetDescriptor; source: DataSource }) => void;
 }
 
 const running = new Map<string, AbortController>();
@@ -69,6 +73,22 @@ export const importService = {
       perfMark("vp:import:probe:end");
 
       const hierarchical = FORMAT_CAPABILITIES[dataset.info.format]?.hierarchical === true;
+      // B: raster datasets dispatch on the opened dataset's KIND — rasters
+      // never enter the point-cloud readChunk(0) path.
+      if (dataset.info.kind === "raster") {
+        jobStore.setStatus(job.id, "creating-layer", { message: "attaching raster" });
+        const desc = datasetManager.descriptor(dataset.id)!;
+        const raster = (dataset.info.metadata.formatSpecific?.raster ?? {}) as {
+          width?: number; height?: number; bandCount?: number;
+        };
+        hooks.createRasterLayer?.({ descriptor: desc, sourceLabel: label });
+        hooks.attachRaster?.({ descriptor: desc, source });
+        jobStore.setStatus(job.id, "completed", {
+          progress: 1,
+          message: `${raster.width ?? "?"}×${raster.height ?? "?"} raster · streaming`,
+        });
+        return;
+      }
       // §116-117: the whole-file size guard applies ONLY to whole-file decode
       // paths — hierarchical (COPC) datasets stream by range and never read
       // the complete source, so multi-GB files are expected here.

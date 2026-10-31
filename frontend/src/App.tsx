@@ -18,6 +18,9 @@ import { displayChunk, showPrepared, retransformDisplayedLayer, renderOrigin, se
 import { importService, type ImportHooks } from "./core/data/importService";
 import { CopcStreamRuntime } from "./core/streaming/runtime";
 import { streamingRegistry } from "./core/streaming/registry";
+import { RasterStreamRuntime } from "./core/raster/runtime";
+import { rasterRegistry } from "./core/raster/registry";
+import type { RasterDescriptor } from "./core/raster/model";
 import { spatialReferenceRegistry } from "./core/spatial/registry";
 import { decodeChunkData } from "./core/data/workers/client";
 import { datasetManager } from "./core/data/datasetManager";
@@ -257,6 +260,67 @@ export default function App() {
         setNotice({ text: "Could not attach streaming for " + descriptor.name, detail: (e as Error).message });
       });
     },
+    createRasterLayer: ({ descriptor, sourceLabel }) => {
+      // Raster path (CP4): metadata-only layer + dataset ref, same as the
+      // streaming point-cloud path — pixels stream via the raster runtime.
+      useProjectStore.getState().addDataset({
+        id: descriptor.id,
+        name: descriptor.name,
+        format: descriptor.format,
+        kind: descriptor.kind,
+        source: descriptor.source as Record<string, unknown>,
+        metadata: {
+          pointCount: descriptor.metadata.pointCount,
+          bounds: descriptor.metadata.bounds,
+          fields: descriptor.metadata.fields,
+          formatVersion: descriptor.metadata.formatVersion,
+          formatSpecific: descriptor.metadata.formatSpecific,
+          createdAt: descriptor.metadata.createdAt,
+          spatialReference: descriptor.metadata.spatialReference,
+        },
+      });
+      const raster = (descriptor.metadata.formatSpecific?.raster ?? {}) as {
+        width?: number; height?: number; bandCount?: number; crs?: string;
+        geotransform?: { c: number; f: number; a: number; e: number; b: number; d: number };
+      };
+      // 2D footprint bounds for the layer record (z unused for raster-only)
+      const gt = raster.geotransform;
+      const w = raster.width ?? 0, h = raster.height ?? 0;
+      const xs = gt ? [gt.c, gt.c + gt.a * w + gt.b * h, gt.c + gt.b * h, gt.c + gt.a * w] : [0];
+      const ys = gt ? [gt.f, gt.f + gt.d * w + gt.e * h, gt.f + gt.e * h, gt.f + gt.d * w] : [0];
+      useProjectStore.getState().addLayer({
+        id: nextLayerId(), name: descriptor.name, type: "raster", visible: true,
+        locked: false, opacity: 1, datasetId: descriptor.id,
+        source: { kind: "file", name: sourceLabel },
+        bounds: [
+          Math.min(...xs), Math.min(...ys), 0,
+          Math.max(...xs), Math.max(...ys), 0,
+        ],
+      });
+      appendConsole(`imported ${descriptor.name} — ${w}×${h} ${raster.bandCount ?? "?"}-band raster (${descriptor.format})`);
+    },
+    attachRaster: ({ descriptor, source }) => {
+      void (async () => {
+        const spec = descriptor.metadata.formatSpecific?.raster as unknown as (RasterDescriptor & { id?: string }) | undefined;
+        if (!spec || !spec.geotransform) {
+          throw new Error("raster descriptor missing from metadata");
+        }
+        const rdesc: RasterDescriptor = { ...spec, id: descriptor.id, source: descriptor.source } as RasterDescriptor;
+        const openT0 = performance.now();
+        const runtime = await RasterStreamRuntime.open(descriptor.id, source, rdesc, {
+          onTileReady: () => { /* renderer reads via rasterRegistry */ },
+          onTileEvicted: () => { /* MapWorkspace disposes geometry */ },
+        });
+        rasterRegistry.set(descriptor.id, runtime);
+        // CP4: focus the Map workspace — the map frames the union footprint
+        // on the next registry change (MapWorkspace §37 origin strategy).
+        useStore.getState().setViewLayout("map");
+        appendConsole(`raster streaming attached — ${descriptor.name} (open ${(performance.now() - openT0).toFixed(0)} ms)`);
+      })().catch((e) => {
+        appendConsole("raster FAILED — " + (e as Error).message);
+        setNotice({ text: "Could not attach raster for " + descriptor.name, detail: (e as Error).message });
+      });
+    },
     frameBounds: (b) => {
       handleRef.current?.frameBounds([b.min[0], b.min[1], b.min[2], b.max[0], b.max[1], b.max[2]]);
     },
@@ -300,6 +364,7 @@ export default function App() {
         if (!stillReferenced) {
           datasetManager.releaseRef(l.datasetId);
           streamingRegistry.remove(l.datasetId); // §138: abort + dispose streaming
+          rasterRegistry.remove(l.datasetId);    // raster runtime dispose
           appendConsole(`dataset ${l.datasetId} released`);
         }
       }
@@ -568,7 +633,7 @@ export default function App() {
     >
       {/* persistent, accessible file inputs (hidden chrome) */}
       <input ref={addInputRef} type="file" id="vp-add-data" aria-hidden multiple
-        accept=".las,.ply,.pcd,.xyz,.txt,.pts" className="hidden" onChange={onAddInput} />
+        accept=".las,.ply,.pcd,.xyz,.txt,.pts,.tif,.tiff" className="hidden" onChange={onAddInput} />
       <input ref={openInputRef} type="file" id="vp-open-project" aria-hidden
         accept=".vxp,application/json" className="hidden" onChange={onOpenInput} />
       <input ref={relinkInputRef} type="file" id="vp-relink" aria-hidden

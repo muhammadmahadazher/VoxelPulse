@@ -1,6 +1,9 @@
 /** GeoTIFF adapter (§12): content-first detection, metadata inspection and
- *  decode through geotiff.js — with all byte reads routed through the
- *  VoxelPulse DataSource (ADR-0009: geotiff's own HTTP client is unused). */
+ *  decode through geotiff.js — with ALL byte reads routed through the
+ *  VoxelPulse DataSource via GeoTIFF.fromSource (ADR-0009: geotiff's own
+ *  HTTP remote client is never used). Raw georeferencing tags come from a
+ *  bounded header window via our own IFD reader — geotiff.js v3 defers geo
+ *  tags and would flatten ModelTransformation (losing rotation). */
 import type { DataSource, SourceDescriptorLike } from "../../source/types";
 import type { DataFormat } from "../../types";
 import type { FormatAdapter, ProbeContext, ProbeResult } from "../types";
@@ -9,11 +12,16 @@ import { spatialReferenceRegistry } from "../../../spatial/registry";
 import { UNKNOWN_REFERENCE } from "../../../spatial/reference";
 import type { RasterDescriptor, RasterOverview, SampleType } from "../../../raster/model";
 import { validateRasterDescriptor } from "../../../raster/model";
-import { validateTransform, type GeoTransform } from "../../../raster/transform";
+import { validateTransform, transformBounds, type GeoTransform } from "../../../raster/transform";
 import { readGeoTags, geotransformFromTags, epsgFromGeoKeyDirectory, type RawGeoTags } from "./rawtags";
 import { newDatasetId } from "../../ids";
+import { VpGeoTIFFSource } from "../../../raster/vpSource";
 
 const TIFF_EXT = /\.(tif|tiff|gtiff)$/i;
+
+/** COG ghost-area signature (GDAL structural metadata, first bytes before
+ *  IFD0 of a Cloud Optimized GeoTIFF). */
+const COG_GHOST = "GDAL_STRUCTURAL_METADATA";
 
 function geotiffProbe(ctx: ProbeContext): ProbeResult {
   // TIFF magic: "II" + 42 (little-endian) or "MM" + 42 (big-endian);
@@ -22,7 +30,6 @@ function geotiffProbe(ctx: ProbeContext): ProbeResult {
   if (b.length < 8) return { confidence: TIFF_EXT.test(ctx.filename ?? "") ? 0.1 : 0, reason: "too short" };
   const byteOrder = b[0] === 0x49 && b[1] === 0x49 ? "le" : b[0] === 0x4d && b[1] === 0x4d ? "be" : null;
   if (!byteOrder) return { confidence: TIFF_EXT.test(ctx.filename ?? "") ? 0.1 : 0, reason: "no TIFF magic" };
-  // magic is 42 (classic) or 43 (BigTIFF) in the file's byte order
   const magic = byteOrder === "le" ? b[2] | (b[3] << 8) : (b[2] << 8) | b[3];
   if (magic !== 42 && magic !== 43) {
     return { confidence: TIFF_EXT.test(ctx.filename ?? "") ? 0.1 : 0, reason: "not a TIFF version" };
@@ -34,13 +41,12 @@ function geotiffProbe(ctx: ProbeContext): ProbeResult {
 
 /** Map TIFF SampleFormat code + bits to our SampleType. */
 function sampleFormatName(format: number, bits: number): string {
-  const t = `${format}/${bits}`;
   const map: Record<string, string> = {
     "1/8": "Uint8", "1/16": "Uint16", "1/32": "Uint32",
     "2/8": "Int8", "2/16": "Int16", "2/32": "Int32",
     "3/32": "Float32", "3/64": "Float64",
   };
-  return map[t] ?? "Uint8";
+  return map[`${format}/${bits}`] ?? "Uint8";
 }
 
 /** Map a geotiff.js sample format string to our SampleType. */
@@ -58,23 +64,38 @@ function toSampleType(gtType: string): SampleType {
   }
 }
 
-/** Build the canonical CRS id from geotiff.js geokeys. Preference: projected
- *  EPSG, then geographic EPSG, else UNKNOWN (never a guess, §11/§48). */
-function crsIdFromGeoKeys(geoKeys: Record<number, unknown> | undefined): string | undefined {
-  if (!geoKeys) return undefined;
-  const gtCitation = geoKeys[1026] as string | undefined;
-  const projCs = geoKeys[3072] as number | undefined; // ProjectedCSTypeGeoKey
-  const geoCs = geoKeys[2048] as number | undefined;  // GeographicTypeGeoKey
-  if (projCs && projCs > 0) return `EPSG:${projCs}`;
-  if (geoCs && geoCs > 0) return `EPSG:${geoCs}`;
-  void gtCitation;
-  return undefined;
-}
-
-export class GeotiffOpenError extends VpDataError {
-  constructor(message: string, detail?: string) {
-    super("unsupported-format", message, { detail });
+/** Geotransform from geotiff.js-parsed fileDirectory tags — fallback when the
+ *  raw IFD window didn't reach the tags. geotiff.js v3 parses ModelPixelScale
+ *  (33550), ModelTiepoint (33922) and ModelTransformation (34264) into
+ *  deferred arrays; when resolvable they give the full affine. */
+function geotransformFromFileDirectory(
+  fd: Record<string, unknown>,
+  fallbackOrigin: number[],
+  fallbackResolution: number[],
+): GeoTransform | null {
+  // ModelTransformation (4×4, row-major): world = M · [pixel, row, 0, 1]
+  const mt = fd?.ModelTransformation;
+  if (Array.isArray(mt) && mt.length >= 16) {
+    const m = mt as number[];
+    const gt: GeoTransform = { a: m[0], b: m[4], c: m[3], d: m[1], e: m[5], f: m[7] };
+    if (Number.isFinite(gt.a) && Number.isFinite(gt.e)) return gt;
   }
+  const scale = fd?.ModelPixelScale;
+  const tie = fd?.ModelTiepoint;
+  if (Array.isArray(scale) && scale.length >= 2 && Array.isArray(tie) && tie.length >= 6) {
+    const gt: GeoTransform = {
+      a: scale[0] as number, b: 0, c: tie[3] as number,
+      d: 0, e: -(scale[1] as number), f: tie[4] as number,
+    };
+    if (Number.isFinite(gt.a) && Number.isFinite(gt.e) && gt.a !== 0 && gt.e !== 0) return gt;
+  }
+  if (fallbackResolution?.length >= 2 && fallbackOrigin?.length >= 2) {
+    return {
+      a: fallbackResolution[0], b: 0, c: fallbackOrigin[0],
+      d: 0, e: -Math.abs(fallbackResolution[1]), f: fallbackOrigin[1],
+    };
+  }
+  return null;
 }
 
 /** Inspect an opened geotiff.js image into a RasterDescriptor. */
@@ -82,64 +103,38 @@ async function descriptorFromImage(
   id: import("../../../data/ids").DatasetId,
   name: string,
   source: SourceDescriptorLike,
-  image: {
-    getWidth: () => number;
-    getHeight: () => number;
-    getSamplesPerPixel: () => number;
-    getGeoKeys: () => Record<number, unknown> | Record<number, unknown>[];
-    getOrigin: () => number[];
-    getResolution: (width?: number) => number[];
-    getTileSize: () => { width: number; height: number } | null;
-    fileDirectory: Record<string, unknown>;
-    getSampleFormat: (i?: number) => number;
-    getBitsPerSample: (i?: number) => number;
-    isTiled: boolean;
-    getTileWidth: () => number;
-    getTileHeight: () => number;
-    getGDALNoData: () => Promise<number | null>;
-  },
-  overviewCount: number,
-  isCOG: boolean,
-  raw: RawGeoTags,
+  image: import("geotiff").GeoTIFFImage,
+  overviews: RasterOverview[],
+  layout: "cog" | "tiled" | "stripped",
+  raw: RawGeoTags | null,
 ): Promise<RasterDescriptor> {
-  // §9: georeferencing from raw tags — geotiff.js v3 accessors flatten
-  // ModelTransformation (rotation would be silently discarded).
-  const gt = geotransformFromTags(raw) ?? (() => {
-    const [ox, oy] = image.getOrigin();
-    const [rx, ry] = image.getResolution();
-    return { a: rx, b: 0, c: ox, d: 0, e: -Math.abs(ry), f: oy };
-  })();
+  // §9: georeferencing — raw tags first (rotation preserved); deferred
+  // fileDirectory arrays as the fallback; never a guess. (ImageFileDirectory
+  // has no string index signature — widen for the tag lookup.)
+  const fd = image.fileDirectory as unknown as Record<string, unknown>;
+  const gt: GeoTransform | null =
+    (raw ? geotransformFromTags(raw) : null) ??
+    geotransformFromFileDirectory(fd, image.getOrigin(), image.getResolution());
+  if (!gt) {
+    throw new VpDataError("invalid-data", "GeoTIFF has no usable georeferencing (ModelPixelScale/Tiepoint/Transformation).");
+  }
   validateTransform(gt);
 
-  // §48: CRS from raw GeoKeyDirectory (v3 getGeoKeys works too, but the raw
-  // path keeps rotated/BE fixtures consistent).
-  const crsFromKeys = epsgFromGeoKeyDirectory(raw.geoKeyDirectory) ?? undefined;
+  const crsFromKeys = raw ? epsgFromGeoKeyDirectory(raw.geoKeyDirectory) : undefined;
 
   const compressionNames: Record<number, string> = {
     1: "none", 5: "lzw", 8: "deflate", 7: "jpeg", 32946: "deflate",
     50000: "zstd", 32773: "packbits", 2: "ccitt", 6: "old-jpeg",
   };
-  let compression: string = "unknown";
-  {
-    const fdCompression = (image as unknown as { fileDirectory: { Compression?: number } }).fileDirectory.Compression;
-    compression = typeof fdCompression === "number"
-      ? (compressionNames[fdCompression] ?? `tiff-code-${fdCompression}`)
-      : compression;
-  }
-
-  const overviews: RasterOverview[] = [];
-  for (let i = 1; i <= overviewCount; i++) {
-    const f = 2 ** i;
-    overviews.push({
-      factor: f,
-      width: Math.max(1, Math.ceil(image.getWidth() / f)),
-      height: Math.max(1, Math.ceil(image.getHeight() / f)),
-    });
-  }
+  const fdCompression = fd?.Compression;
+  const compression = typeof fdCompression === "number"
+    ? (compressionNames[fdCompression] ?? `tiff-code-${fdCompression}`)
+    : "unknown";
 
   const nodata = await image.getGDALNoData();
   const bandNodata = nodata !== null && nodata !== undefined && Number.isFinite(nodata) ? nodata : undefined;
 
+  const footprint = transformBounds(gt, image.getWidth(), image.getHeight());
   const desc: RasterDescriptor = {
     id,
     name,
@@ -157,7 +152,7 @@ async function descriptorFromImage(
     tileSize: image.isTiled ? { width: image.getTileWidth(), height: image.getTileHeight() } : undefined,
     overviews,
     compression,
-    cloudOptimized: isCOG,
+    cloudOptimized: layout === "cog",
     source,
     spatialReference: crsFromKeys
       ? (() => {
@@ -176,11 +171,20 @@ async function descriptorFromImage(
           }
         })()
       : { reference: UNKNOWN_REFERENCE, source: "none" as const, detail: "no GeoTIFF CRS keys" },
-    metadata: { photometric: raw.modelTransformation ? "transform-present" : undefined },
+    metadata: {
+      layout,
+      photometric: raw?.modelTransformation ? "transform-present" : undefined,
+      footprint,
+    },
   };
   validateRasterDescriptor(desc);
   return desc;
 }
+
+/** Bounded header window we read for raw-tag parsing + ghost sniffing. TIFF
+ *  IFDs usually live near the start; when they don't, georeferencing falls
+ *  back to the deferred fileDirectory arrays (never a whole-file read). */
+const HEAD_WINDOW = 512 * 1024;
 
 export const geotiffAdapter: FormatAdapter = {
   id: "geotiff" as DataFormat,
@@ -191,19 +195,73 @@ export const geotiffAdapter: FormatAdapter = {
   async inspect(source, signal) {
     try {
       if (signal?.aborted) throw new VpDataError("cancelled", "Cancelled");
-      // Route every byte through our DataSource: read the whole buffer for
-      // local files; remote files use windowed reads in the COG runtime
-      // (§13) — inspection needs only the header bytes.
+
+      // bounded window for raw tags + ghost sniff (read through the DataSource)
       const size = await source.size().catch(() => undefined);
-      const headLen = Math.min(size ?? 32768, 32768);
+      const headLen = Math.min(size ?? HEAD_WINDOW, HEAD_WINDOW);
       const head = await source.read({ offset: 0, length: headLen }, signal);
-      if (!geotiffProbe({ header: new Uint8Array(head), filename: source.descriptor().name }).confidence) {
+      const headBytes = new Uint8Array(head);
+      if (!geotiffProbe({ header: headBytes, filename: source.descriptor().name }).confidence) {
         throw new VpDataError("invalid-data", "Not a TIFF file (missing II*/MM* magic).");
       }
 
-      // geotiff.js parses the header/IFD itself (handles LE/BE/BigTIFF);
-      // small fixtures fit the window — larger files stream in the runtime.
-      return inspectFromBuffer(head, source, size);
+      // structure via geotiff.js over the SAME DataSource (byte ranges only)
+      const { default: GeoTIFF } = await import("geotiff");
+      const vpSource = new VpGeoTIFFSource(source);
+      const tiff = await GeoTIFF.fromSource(vpSource as never, undefined, signal);
+      const image = (await tiff.getImage()) as never as Awaited<ReturnType<typeof tiff.getImage>>;
+
+      const raw = readGeoTags(head);
+      const count = await tiff.getImageCount();
+      // real overview dims from the actual images (§13 — never assumed 2^i)
+      const overviews: RasterOverview[] = [];
+      for (let i = 1; i < count; i++) {
+        const ov = await tiff.getImage(i);
+        const w = ov.getWidth(), h = ov.getHeight();
+        if (w >= image.getWidth()) continue; // not an overview (mask/multi-page)
+        const factor = Math.max(1, Math.round(image.getWidth() / Math.max(1, w)));
+        overviews.push({ factor, width: w, height: h });
+      }
+      overviews.sort((a, b) => a.factor - b.factor);
+
+      // COG verification (§13): ghost signature + tiled + overviews ordered.
+      // Tiled alone is NOT a COG — "GDAL_STRUCTURAL_METADATA" in the header
+      // window is the verifying evidence.
+      const ghost = headBytes.length > 16 && new TextDecoder().decode(headBytes.subarray(0, Math.min(1024, headBytes.length))).includes(COG_GHOST);
+      const tiled = image.isTiled === true;
+      const layout: "cog" | "tiled" | "stripped" =
+        ghost && tiled && overviews.length > 0 ? "cog"
+        : tiled ? "tiled"
+        : "stripped";
+
+      const desc = await descriptorFromImage(
+        newDatasetId(),
+        source.descriptor().name ?? source.label,
+        source.descriptor(),
+        image,
+        overviews,
+        layout,
+        raw,
+      );
+
+      return {
+        name: desc.name,
+        format: "geotiff" as DataFormat,
+        kind: "raster" as const,
+        metadata: {
+          sourceName: desc.name,
+          sourceSizeBytes: size,
+          pointCount: undefined,
+          bounds: undefined,
+          fields: [],
+          createdAt: new Date().toISOString(),
+          spatialReference: desc.spatialReference,
+          formatSpecific: {
+            raster: { ...desc, id: undefined, source: undefined } as unknown as Record<string, unknown>,
+          },
+        },
+        chunkCount: 0,
+      };
     } catch (e) {
       if (e instanceof VpDataError) throw e;
       throw new VpDataError("invalid-data", `Could not inspect ${source.label} as GeoTIFF.`, {
@@ -213,58 +271,10 @@ export const geotiffAdapter: FormatAdapter = {
   },
 
   async open() {
-    // §52-54: raster rendering attaches through the COG streaming runtime;
-    // whole-file decode is not the adapter's job.
+    // §52-54: raster rendering attaches through the raster streaming runtime;
+    // whole-file decode is not the adapter's job (B: the opened-dataset
+    // contract dispatches on kind === "raster" in the import service).
     throw new VpDataError("unsupported-format",
       "GeoTIFF/COG rasters render through the raster runtime (Map/Terrain workspaces).");
   },
 };
-
-/** Full metadata parse from a buffer via geotiff.js (fromArrayBuffer). */
-async function inspectFromBuffer(buf: ArrayBuffer, source: DataSource, size: number | undefined) {
-  const { fromArrayBuffer } = await import("geotiff");
-  const tiff = await fromArrayBuffer(buf);
-  const image = await tiff.getImage(); // v3: async (§14)
-  const count = await tiff.getImageCount();
-  const isCOG = await detectCOG(tiff, image as never);
-  const raw = readGeoTags(buf);
-  const desc = await descriptorFromImage(
-    newDatasetId(),
-    source.descriptor().name ?? source.label,
-    source.descriptor(),
-    image as never,
-    Math.max(0, count - 1),
-    isCOG,
-    raw,
-  );
-  return {
-    name: desc.name,
-    format: "geotiff" as DataFormat,
-    kind: "raster" as const,
-    metadata: {
-      sourceName: desc.name,
-      sourceSizeBytes: size,
-      pointCount: undefined,
-      bounds: undefined,
-      fields: [],
-      createdAt: new Date().toISOString(),
-      spatialReference: desc.spatialReference,
-      formatSpecific: {
-        raster: { ...desc, id: undefined, source: undefined } as unknown as Record<string, unknown>,
-      },
-    },
-    chunkCount: 0,
-  };
-}
-
-/** §13: COG detection per the OGC spec layout (tiled + BitRanges as offsets). */
-async function detectCOG(tiff: unknown, image: { isTiled: unknown; fileDirectory: Record<string, unknown> }): Promise<boolean> {
-  try {
-    const tiled = typeof image.isTiled === "function" ? (image.isTiled as () => boolean)() : Boolean(image.isTiled);
-    if (!tiled) return false;
-    void tiff;
-    return true;
-  } catch {
-    return false;
-  }
-}

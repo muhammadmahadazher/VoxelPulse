@@ -15,6 +15,7 @@ import { CropGizmo } from "./CropGizmo";
 import { measurePoints } from "../core/spatial/measure";
 import { projectReference, renderOrigin } from "../utils/projectSpatial";
 import { StreamingClouds } from "./StreamingClouds";
+import { MapWorkspace } from "./MapWorkspace";
 
 const MAX_POINTS = 60000;
 const EMPTY_OBJECTS: never[] = [];
@@ -371,6 +372,11 @@ export function Viewport({ handleRef }: { handleRef: React.MutableRefObject<View
       {viewLayout === "fusion" && (
         <div className="relative h-full w-1/2 border-l border-white/10 bg-black">
           <FusionPanel />
+        </div>
+      )}
+      {viewLayout === "map" && (
+        <div className="relative h-full w-1/2 border-l border-white/10">
+          <MapWorkspace active />
         </div>
       )}
     </div>

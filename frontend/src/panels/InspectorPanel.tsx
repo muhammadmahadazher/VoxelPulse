@@ -114,15 +114,79 @@ export function InspectorPanel() {
               </Section>
             )}
 
-            <Section title="Rendering">
-              <Switch label="Eye-Dome Lighting" checked={t.showEdl} onChange={() => t.toggle("showEdl")} />
-              {t.showEdl && (
-                <Slider label="Strength" value={t.edlStrength} min={0.4} max={2.4} step={0.1}
-                  onChange={t.setEdlStrength} format={(v) => v.toFixed(1)} />
-              )}
-              <Switch label="Bloom / FX stack" checked={t.showPostFx} onChange={() => t.toggle("showPostFx")} />
-              <Switch label="Ground grid" checked={t.showGround} onChange={() => t.toggle("showGround")} />
-            </Section>
+            {layer.type === "raster" && (() => {
+              // Raster facts come from the dataset's formatSpecific (§5:
+              // descriptors only — pixels live in the runtime).
+              const r = (dataset?.metadata.formatSpecific?.raster ?? {}) as {
+                width?: number; height?: number; bandCount?: number;
+                sampleType?: string; compression?: string;
+                cloudOptimized?: boolean; tileSize?: { width: number; height: number };
+                overviews?: Array<{ factor: number }>;
+                bands?: Array<{ nodata?: number }>;
+                crs?: string;
+              };
+              const nodata = r.bands?.find((b) => b.nodata !== undefined)?.nodata;
+              return (
+                <>
+                  <Section title="Raster">
+                    <PropertyRow label="Dimensions">
+                      <span className="font-[var(--vp-font-mono)] text-[12px] text-[var(--vp-text-2)]">
+                        {r.width ?? "?"} × {r.height ?? "?"} px
+                      </span>
+                    </PropertyRow>
+                    <PropertyRow label="Bands">
+                      <span className="font-[var(--vp-font-mono)] text-[12px] text-[var(--vp-text-2)]">{r.bandCount ?? "?"}</span>
+                    </PropertyRow>
+                    <PropertyRow label="Sample type">
+                      <span className="font-[var(--vp-font-mono)] text-[12px] text-[var(--vp-text-2)]">{r.sampleType ?? "?"}</span>
+                    </PropertyRow>
+                    <PropertyRow label="Nodata">
+                      <span className="font-[var(--vp-font-mono)] text-[12px] text-[var(--vp-text-2)]">
+                        {nodata !== undefined ? String(nodata) : "—"}
+                      </span>
+                    </PropertyRow>
+                    <PropertyRow label="Compression">
+                      <span className="font-[var(--vp-font-mono)] text-[12px] text-[var(--vp-text-2)]">{r.compression ?? "?"}</span>
+                    </PropertyRow>
+                    <PropertyRow label="Layout">
+                      <span className="font-[var(--vp-font-mono)] text-[12px] text-[var(--vp-text-2)]">
+                        {r.cloudOptimized ? "COG (verified)" : (r.tileSize ? "tiled TIFF" : "stripped TIFF")}
+                      </span>
+                    </PropertyRow>
+                    {r.tileSize && (
+                      <PropertyRow label="Tile size">
+                        <span className="font-[var(--vp-font-mono)] text-[12px] text-[var(--vp-text-2)]">
+                          {r.tileSize.width} × {r.tileSize.height}
+                        </span>
+                      </PropertyRow>
+                    )}
+                    <PropertyRow label="Overviews">
+                      <span className="font-[var(--vp-font-mono)] text-[12px] text-[var(--vp-text-2)]">
+                        {r.overviews?.length ?? 0}
+                      </span>
+                    </PropertyRow>
+                    <PropertyRow label="CRS">
+                      <span className="font-[var(--vp-font-mono)] text-[12px] text-[var(--vp-accent)]">{r.crs ?? "—"}</span>
+                    </PropertyRow>
+                    <Slider label="Opacity" value={layer.opacity} min={0.1} max={1} step={0.05}
+                      onChange={(v) => updateLayer(layer.id, { opacity: v })}
+                      format={(v) => `${(v * 100) | 0}%`} />
+                  </Section>
+                </>
+              );
+            })()}
+
+            {layer.type !== "raster" && (
+              <Section title="Rendering">
+                <Switch label="Eye-Dome Lighting" checked={t.showEdl} onChange={() => t.toggle("showEdl")} />
+                {t.showEdl && (
+                  <Slider label="Strength" value={t.edlStrength} min={0.4} max={2.4} step={0.1}
+                    onChange={t.setEdlStrength} format={(v) => v.toFixed(1)} />
+                )}
+                <Switch label="Bloom / FX stack" checked={t.showPostFx} onChange={() => t.toggle("showPostFx")} />
+                <Switch label="Ground grid" checked={t.showGround} onChange={() => t.toggle("showGround")} />
+              </Section>
+            )}
 
             <Section title="Data">
               {/* §53: dataset-owned facts read from the Dataset model — no
@@ -181,11 +245,13 @@ export function InspectorPanel() {
                   </PropertyRow>
                 </>
               )}
-              <PropertyRow label="Points">
-                <span className="font-[var(--vp-font-mono)] text-[12px] text-[var(--vp-text-2)]">
-                  {(dataset?.metadata.pointCount ?? layer.pointCount)?.toLocaleString() ?? (frame?.n ?? 0).toLocaleString()}
-                </span>
-              </PropertyRow>
+              {layer.type !== "raster" && (
+                <PropertyRow label="Points">
+                  <span className="font-[var(--vp-font-mono)] text-[12px] text-[var(--vp-text-2)]">
+                    {(dataset?.metadata.pointCount ?? layer.pointCount)?.toLocaleString() ?? (frame?.n ?? 0).toLocaleString()}
+                  </span>
+                </PropertyRow>
+              )}
               {(() => {
                 const b = dataset?.metadata.bounds;
                 const ext = b

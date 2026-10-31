@@ -1,13 +1,17 @@
 /** Raster streaming runtime (§13, §16, §20-21): one instance per raster
- *  dataset. Owns the geotiff.js handle over a VoxelPulse source, the tile
- *  scheduler, the decoded-tile cache under a texture budget, and progressive
- *  tile loading with cancellation. Engine-owned — React sees only metrics. */
+ *  dataset. Owns a GeoTIFF.fromSource handle over the VoxelPulse DataSource
+ *  (every IFD/tile/overview byte flows through VoxelPulse accounting — no
+ *  whole-file reads, no silent fallbacks), the tile scheduler, the
+ *  decoded-tile cache under a texture budget, and progressive tile loading
+ *  with cancellation. Engine-owned — React sees only metrics. */
 import type { DataSource } from "../data/source/types";
-import type { RasterDescriptor } from "./model";
+import type { RasterDescriptor, SampleType } from "./model";
 import { scheduleTiles, type MapViewport, type ScheduledTile } from "./tileScheduler";
-import { resourceManager } from "../data/resources/manager";
+import { VpGeoTIFFSource } from "./vpSource";
 import { isCancelledError } from "../data/errors";
 import { createLogger } from "../data/logging";
+import type { RasterStyle } from "./bands";
+import { DEFAULT_RASTER_STYLE } from "./bands";
 
 const log = createLogger("raster");
 
@@ -20,16 +24,19 @@ export interface RasterMetrics {
 }
 
 export interface RasterRuntimeHooks {
-  onTileReady: (tile: ScheduledTile, textureData: { width: number; height: number; pixels: Uint8Array | Float32Array | Int16Array | Uint16Array | Int32Array; samples: number }) => void;
+  onTileReady: (tile: ScheduledTile) => void;
   onTileEvicted: (key: string) => void;
   onMetrics?: (m: RasterMetrics) => void;
 }
 
+/** One decoded tile: RAW interleaved samples (never quantized — probing and
+ *  terrain sampling read this) + level metadata for display packing. */
 export interface DecodedTile {
   width: number;
   height: number;
-  pixels: Uint8Array | Float32Array | Int16Array | Uint16Array | Int32Array;
   samples: number;
+  sampleType: SampleType;
+  raw: Uint8Array | Int8Array | Uint16Array | Int16Array | Uint32Array | Int32Array | Float32Array | Float64Array;
   tile: ScheduledTile;
 }
 
@@ -41,7 +48,18 @@ interface TileEntry {
   lastUsed: number;
 }
 
+interface Level {
+  factor: number;
+  width: number;
+  height: number;
+  imageIndex: number;
+}
+
 const TEXTURE_BUDGET = 256 * 1024 * 1024; // decoded texture bytes (§20)
+
+const BYTES_PER: Record<string, number> = {
+  uint8: 1, int8: 1, uint16: 2, int16: 2, uint32: 4, int32: 4, float32: 4, float64: 8,
+};
 
 export class RasterStreamRuntime {
   readonly datasetId: string;
@@ -55,8 +73,15 @@ export class RasterStreamRuntime {
     residentTiles: 0, visibleTiles: 0, queued: 0, textureBytes: 0, fetchedBytes: 0,
   };
   private disposed = false;
-  /** geotiff.js handle — created lazily (needs full header parse). */
-  private tiff: import("geotiff").GeoTIFF | null = null;
+  /** geotiff.js handle — source-backed (GeoTIFF.fromSource). */
+  private tiff: import("geotiff").default | null = null;
+  private vpSource: VpGeoTIFFSource | null = null;
+  /** Real overview levels measured from the actual images. */
+  private levels: Level[] = [];
+  /** Display style (raw data is never restyled — packing is display-only). */
+  style: RasterStyle = { ...DEFAULT_RASTER_STYLE };
+  /** Bumped on setStyle — the renderer re-packs resident tiles. */
+  styleEpoch = 0;
 
   private constructor(datasetId: string, source: DataSource, descriptor: RasterDescriptor, hooks: RasterRuntimeHooks) {
     this.datasetId = datasetId;
@@ -67,40 +92,72 @@ export class RasterStreamRuntime {
 
   static async open(datasetId: string, source: DataSource, descriptor: RasterDescriptor, hooks: RasterRuntimeHooks): Promise<RasterStreamRuntime> {
     const rt = new RasterStreamRuntime(datasetId, source, descriptor, hooks);
-    // geotiff.js needs the header; read it and parse
-    const { fromArrayBuffer } = await import("geotiff");
-    const head = await source.read({ offset: 0, length: 32768 });
-    try {
-      rt.tiff = await fromArrayBuffer(head);
-    } catch {
-      // header window didn't contain the full IFD chain — read more
-      const bigger = await source.read({ offset: 0, length: Math.min(256 * 1024, descriptor.width * 4) });
-      rt.tiff = await fromArrayBuffer(bigger);
-    }
+    const { default: GeoTIFF } = await import("geotiff");
+    rt.vpSource = new VpGeoTIFFSource(source);
+    rt.tiff = await GeoTIFF.fromSource(rt.vpSource as never);
+    await rt.measureLevels();
     return rt;
+  }
+
+  /** §13: real levels from the actual IFDs — factor = full.width/ov.width
+   *  (measured, never assumed 2^i); imageIndex maps factor → geotiff image. */
+  private async measureLevels(): Promise<void> {
+    if (!this.tiff) return;
+    const count = await this.tiff.getImageCount();
+    const full = await this.tiff.getImage(0);
+    this.levels = [{ factor: 1, width: full.getWidth(), height: full.getHeight(), imageIndex: 0 }];
+    for (let i = 1; i < count; i++) {
+      const ov = await this.tiff.getImage(i);
+      const w = ov.getWidth(), h = ov.getHeight();
+      if (w >= this.levels[0].width) continue; // not an overview
+      const factor = Math.max(1, Math.round(this.levels[0].width / Math.max(1, w)));
+      this.levels.push({ factor, width: w, height: h, imageIndex: i });
+    }
+    this.levels.sort((a, b) => a.factor - b.factor);
+    if (this.descriptor.overviews.length === 0 && this.levels.length > 1) {
+      // descriptor came from a header-window inspect without overview info —
+      // keep the measured truth for scheduling.
+      this.descriptor = {
+        ...this.descriptor,
+        overviews: this.levels.slice(1).map((l) => ({ factor: l.factor, width: l.width, height: l.height })),
+      };
+    }
   }
 
   get rasterDescriptor(): RasterDescriptor {
     return this.descriptor;
   }
 
+  /** Footprint AABB in project space (affine — rotation included). */
+  footprint(): { min: [number, number]; max: [number, number] } {
+    const gt = this.descriptor.geotransform;
+    const w = this.descriptor.width, h = this.descriptor.height;
+    const corners: [number, number][] = [
+      [gt.c, gt.f],
+      [gt.a * w + gt.c, gt.d * w + gt.f],
+      [gt.b * h + gt.c, gt.e * h + gt.f],
+      [gt.a * w + gt.b * h + gt.c, gt.d * w + gt.e * h + gt.f],
+    ];
+    const xs = corners.map((c) => c[0]);
+    const ys = corners.map((c) => c[1]);
+    return { min: [Math.min(...xs), Math.min(...ys)], max: [Math.max(...xs), Math.max(...ys)] };
+  }
+
   /** Drive the scheduler from the 2D map camera (§23). */
   async update(viewport: MapViewport): Promise<RasterMetrics> {
-    if (this.disposed) return this.metrics;
-    if (!this.tiff) return this.metrics;
+    if (this.disposed || !this.tiff || this.levels.length === 0) return this.metrics;
 
     const camKey = `${viewport.bounds.min[0].toFixed(1)},${viewport.bounds.min[1].toFixed(1)},${viewport.bounds.max[0].toFixed(1)},${viewport.bounds.max[1].toFixed(1)}|${viewport.width}`;
     if (camKey === this.lastCamKey && this.inFlight.size === 0) return this.metrics;
     this.lastCamKey = camKey;
 
-    const overviewFactors = this.descriptor.overviews.map((o) => o.factor);
     const sched = scheduleTiles({
       datasetId: this.datasetId,
       width: this.descriptor.width,
       height: this.descriptor.height,
-      overviewFactors,
+      geotransform: this.descriptor.geotransform,
+      overviews: this.levels.map((l) => ({ factor: l.factor, width: l.width, height: l.height })),
       tileSize: this.descriptor.tileSize ?? { width: 256, height: 256 },
-      footprint: this.footprint(),
       viewport,
       texelBudget: 16_000_000,
     });
@@ -109,7 +166,7 @@ export class RasterStreamRuntime {
       if (this.tiles.has(t.key)) continue;
       const entry: TileEntry = { tile: t, state: "unloaded", bytes: 0, lastUsed: performance.now() };
       this.tiles.set(t.key, entry);
-      void this.loadTile(t);
+      void this.loadTile(entry);
     }
 
     const now = performance.now();
@@ -125,82 +182,58 @@ export class RasterStreamRuntime {
     }).length;
     this.metrics.residentTiles = this.tiles.size;
     this.metrics.textureBytes = [...this.tiles.values()].reduce((s, e) => s + e.bytes, 0);
+    this.metrics.fetchedBytes = this.vpSource?.totalBytesFetched ?? 0;
     this.hooks.onMetrics?.(this.metrics);
     this.evictIfNeeded();
     return this.metrics;
   }
 
-  private footprint() {
-    // full-res footprint in project space: corners via geotransform — for
-    // Phase 5 the project CRS == source CRS (aligned imports); reprojected
-    // footprints land with §11's projected-mesh path.
-    const gt = this.descriptor.geotransform;
-    const corners: [number, number][] = [
-      [gt.c, gt.f],
-      [gt.a * this.descriptor.width + gt.c, gt.f],
-      [gt.c, gt.e * this.descriptor.height + gt.f],
-      [gt.a * this.descriptor.width + gt.c, gt.e * this.descriptor.height + gt.f],
-    ];
-    const xs = corners.map((c) => c[0]);
-    const ys = corners.map((c) => c[1]);
-    return { min: [Math.min(...xs), Math.min(...ys)] as [number, number], max: [Math.max(...xs), Math.max(...ys)] as [number, number] };
-  }
-
-  private async loadTile(tile: ScheduledTile): Promise<void> {
-    const key = tile.key;
-    const entry = this.tiles.get(key);
-    if (!entry) return;
+  private async loadTile(entry: TileEntry): Promise<void> {
+    const tile = entry.tile;
     const ctrl = new AbortController();
-    this.inFlight.set(key, ctrl);
+    this.inFlight.set(tile.key, ctrl);
     entry.state = "fetching";
     try {
       if (!this.tiff) throw new Error("no tiff handle");
-      // geotiff.js image order: [full, ov2, ov4, ...] → index = log2(factor)
-      const imageIndex = tile.factor <= 1 ? 0 : Math.round(Math.log2(tile.factor));
-      const image = await this.tiff.getImage(imageIndex);
-      const window_ = this.tileToWindow(tile, image);
-      const read = await image.readRasters({ window: window_, signal: ctrl.signal, samples: undefined });
+      // level lookup by factor → actual image index (never log2 arithmetic)
+      const level = this.levels.find((l) => l.factor === tile.factor);
+      if (!level) throw new Error(`no image for factor ${tile.factor}`);
+      const image = await this.tiff.getImage(level.imageIndex);
+      // tile.px is ALREADY in this level's pixel units (§13: the overview
+      // factor is never applied twice) — clamp defensively to real dims
+      const w = image.getWidth(), h = image.getHeight();
+      const [c0, r0, c1, r1] = tile.px;
+      const window_: [number, number, number, number] = [
+        Math.max(0, Math.min(c0, w)), Math.max(0, Math.min(r0, h)),
+        Math.max(0, Math.min(c1, w)), Math.max(0, Math.min(r1, h)),
+      ];
+      if (window_[2] <= window_[0] || window_[3] <= window_[1]) throw new Error("empty tile window");
+      // interleave:true → ONE buffer in native sample order/dtype (§26);
+      // raw values stay untouched — display packing is a separate step
+      const read = await image.readRasters({
+        window: window_, interleave: true, signal: ctrl.signal,
+      }) as unknown as { width: number; height: number; data: DecodedTile["raw"] } | DecodedTile["raw"] | DecodedTile["raw"][];
+      const raw = (Array.isArray(read) ? read[0] : read) as DecodedTile["raw"];
       const width = window_[2] - window_[0];
       const height = window_[3] - window_[1];
-      const samples = read.length;
-      const bytes = width * height * samples * (read[0] instanceof Float32Array ? 4 : 1);
+      const samples = image.getSamplesPerPixel();
+      const bytes = width * height * samples * (BYTES_PER[this.descriptor.sampleType] ?? 1);
       if (this.disposed) return;
       entry.state = "ready";
       entry.bytes = bytes;
       entry.lastUsed = performance.now();
-      entry.decoded = { width, height, pixels: read[0] as unknown as DecodedTile["pixels"], samples, tile };
-      this.hooks.onTileReady(tile, {
-        width, height,
-        pixels: read[0] as unknown as Uint8Array,
-        samples,
-      });
+      entry.decoded = { width, height, samples, sampleType: this.descriptor.sampleType, raw, tile };
+      this.hooks.onTileReady(tile);
     } catch (e) {
       if (isCancelledError(e)) {
         entry.state = "unloaded";
       } else {
         entry.state = "failed";
-        log.warn(`tile ${key} failed`, e);
+        log.warn(`tile ${tile.key} failed`, e);
       }
     } finally {
-      this.inFlight.delete(key);
+      this.inFlight.delete(tile.key);
     }
-  }
-
-  /** Tile (tx,ty) at its factor → pixel window in the referenced image. */
-  private tileToWindow(tile: ScheduledTile, image: { getWidth(): number; getHeight(): number }): [number, number, number, number] {
-    const factor = tile.factor;
-    const ovW = Math.ceil(image.getWidth() / factor);
-    const ovH = Math.ceil(image.getHeight() / factor);
-    const gt = this.descriptor.geotransform;
-    const fullMinX = gt.c;
-    const fullMaxY = gt.f;
-    const texelX = Math.abs(gt.a) || 1;
-    const texelY = Math.abs(gt.e) || 1;
-    const px0 = Math.max(0, Math.floor((tile.bounds.min[0] - fullMinX) / texelX / factor));
-    const py0 = Math.max(0, Math.floor((fullMaxY - tile.bounds.max[1]) / texelY / factor));
-    const px1 = Math.min(ovW, Math.ceil((tile.bounds.max[0] - fullMinX) / texelX / factor));
-    const py1 = Math.min(ovH, Math.ceil((fullMaxY - tile.bounds.min[1]) / texelY / factor));
-    return [px0, py0, px1, py1];
   }
 
   private evictIfNeeded(): void {
@@ -214,7 +247,6 @@ export class RasterStreamRuntime {
       textureBytes -= e.bytes;
       this.hooks.onTileEvicted(e.tile.key);
       this.tiles.delete(e.tile.key);
-      this.metrics.fetchedBytes = Math.max(0, this.metrics.fetchedBytes);
     }
     this.metrics.textureBytes = textureBytes;
   }
@@ -232,30 +264,37 @@ export class RasterStreamRuntime {
     return out;
   }
 
-  /** §29: pixel probe — returns decoded sample values at pixel (col,row),
-   *  or null when the containing tile is not resident (§43: never zero). */
-  samplePixel(col: number, row: number): { values: number[]; nodata: boolean } | null {
+  /** §29: pixel probe — RAW sample values at FULL-RES pixel (col,row), or
+   *  null when the containing tile is not resident (§43: never zero). The
+   *  resident level's stored value is returned verbatim — no interpolation,
+   *  no fabricated precision (the resident factor is reported). */
+  samplePixel(col: number, row: number): { values: number[]; nodata: boolean; factor: number } | null {
     for (const [, e] of this.tiles) {
       if (e.state !== "ready" || !e.decoded) continue;
-      const t = e.decoded.tile;
-      const gt = this.descriptor.geotransform;
-      // tile bounds → pixel range in the referenced image
-      const px0 = Math.round((t.bounds.min[0] - gt.c) / (gt.a || 1));
-      const px1 = Math.round((t.bounds.max[0] - gt.c) / (gt.a || 1));
-      const py0 = Math.round((gt.f - t.bounds.max[1]) / (Math.abs(gt.e) || 1));
-      const py1 = Math.round((gt.f - t.bounds.min[1]) / (Math.abs(gt.e) || 1));
-      if (col < px0 || col >= px1 || row < py0 || row >= py1) continue;
-      const lc = col - px0;
-      const lr = row - py0;
+      const t = e.tile;
+      const f = t.factor;
       const d = e.decoded;
+      // this level's pixel containing the full-res pixel
+      const oc = Math.floor(col / f);
+      const orow = Math.floor(row / f);
+      const lc = oc - t.px[0];
+      const lr = orow - t.px[1];
+      if (lc < 0 || lr < 0 || lc >= d.width || lr >= d.height) continue;
       const values: number[] = [];
-      for (let s2 = 0; s2 < d.samples; s2++) {
-        values.push(d.pixels[(lr * d.width + lc) * d.samples + s2]);
+      for (let s = 0; s < d.samples; s++) {
+        values.push(Number(d.raw[(lr * d.width + lc) * d.samples + s]));
       }
-      const nodata = this.descriptor.bands.some((b) => b.nodata !== undefined && values[0] === b.nodata);
-      return { values, nodata };
+      const nodata = this.descriptor.bands.some(
+        (b) => b.nodata !== undefined && Number.isFinite(b.nodata) && values[0] === b.nodata,
+      );
+      return { values, nodata, factor: f };
     }
     return null;
+  }
+
+  setStyle(patch: Partial<RasterStyle>): void {
+    this.style = { ...this.style, ...patch };
+    this.styleEpoch++;
   }
 
   dispose(): void {
@@ -263,5 +302,7 @@ export class RasterStreamRuntime {
     for (const [, ctrl] of this.inFlight) ctrl.abort();
     this.inFlight.clear();
     this.tiles.clear();
+    void this.tiff?.close?.();
+    this.tiff = null;
   }
 }

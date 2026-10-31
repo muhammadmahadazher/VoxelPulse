@@ -3,7 +3,7 @@
 import { create } from "zustand";
 
 export type LayerType =
-  | "pointcloud" | "detections" | "camera" | "reference" | "group";
+  | "pointcloud" | "detections" | "camera" | "reference" | "group" | "raster";
 
 export interface Layer {
   id: string;
